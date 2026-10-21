@@ -458,7 +458,7 @@ export function VoiceDetail() {
         <Orb size={56} voiceId={voice.id} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="truncate text-2xl font-semibold tracking-tight">{voice.name}</h1>
+            <h1 className="truncate text-[30px] font-medium leading-tight tracking-[-0.02em]">{voice.name}</h1>
             {voice.status === "draft" ? <Badge tone="amber">Draft</Badge> : <Badge tone="green">Ready</Badge>}
           </div>
           <p className="text-[13.5px] text-ink-2">

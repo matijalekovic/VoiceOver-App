@@ -46,11 +46,11 @@ export function CloneVoice() {
   return (
     <>
       <PageHeader
-        title="Clone a voice"
+        title="Voice Cloning"
         description="Create a voice profile, then add a reference recording, its transcript and a test line."
       />
-      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
-        <Card className="space-y-5 p-6">
+      <div className="grid gap-6 rounded-[28px] bg-stage p-6 lg:grid-cols-[1fr_300px] lg:p-8">
+        <Card className="space-y-6 p-7">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Voice name" htmlFor="name">
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Marie – warm narration" autoFocus />
@@ -63,8 +63,8 @@ export function CloneVoice() {
             <Input id="desc" value={description} onChange={(e) => setDescription(e.target.value)} />
           </Field>
 
-          <div className="space-y-4 rounded-2xl border border-rule bg-panel-2/50 p-5">
-            <div className="flex items-center gap-2 font-semibold">
+          <div className="space-y-4 border-t border-rule pt-6">
+            <div className="flex items-center gap-2 font-medium">
               <ShieldCheck className="size-4" /> Speaker permission
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -78,7 +78,7 @@ export function CloneVoice() {
             <Field label="Notes" htmlFor="notes" hint="Optional: where the written consent is kept, expiry, restrictions.">
               <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-16" />
             </Field>
-            <label className="flex items-start gap-3 text-[13px]">
+            <label className="flex items-start gap-3 text-[14px] leading-relaxed text-ink-2">
               <Checkbox checked={confirmed} onCheckedChange={(v) => setConfirmed(v === true)} className="mt-0.5" />
               <span>
                 I confirm that <strong>{speaker.trim() || "the speaker"}</strong> has authorised cloning their voice for the
@@ -95,7 +95,7 @@ export function CloneVoice() {
         </Card>
 
         <div className="space-y-4">
-          <Callout tone="neutral">
+          <Callout tone="neutral" className="border border-rule bg-panel shadow-card">
             <p className="mb-1 font-medium text-ink">What makes a good reference</p>
             <ul className="list-disc space-y-1 pl-4">
               <li>10–30 seconds of one person speaking naturally</li>

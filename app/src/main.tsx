@@ -61,7 +61,7 @@ createRoot(document.getElementById("root")!).render(
             <RouterProvider router={router} />
           </PlayerProvider>
         </BackendGate>
-        <Toaster position="bottom-right" toastOptions={{ className: "!rounded-xl !text-[13px]" }} />
+        <Toaster position="bottom-right" toastOptions={{ className: "!rounded-xl !text-[13.5px] !shadow-pop" }} />
       </TooltipProvider>
     </QueryClientProvider>
   </StrictMode>,

@@ -27,13 +27,13 @@ export function Dialog({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]" />
         <DialogPrimitive.Content
           className={cn(
-            "fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-rule bg-panel shadow-pop outline-none",
+            "fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-3xl border border-rule bg-panel shadow-pop outline-none",
             className,
           )}
         >
           <div className="flex items-start justify-between gap-4 px-6 pt-5">
             <div>
-              <DialogPrimitive.Title className="text-base font-semibold">{title}</DialogPrimitive.Title>
+              <DialogPrimitive.Title className="text-lg font-medium tracking-tight">{title}</DialogPrimitive.Title>
               {description ? (
                 <DialogPrimitive.Description className="mt-1 text-[13px] text-ink-2">
                   {description}
@@ -49,7 +49,7 @@ export function Dialog({
             </DialogPrimitive.Close>
           </div>
           {children && <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">{children}</div>}
-          {footer && <div className="flex justify-end gap-2 border-t border-rule px-6 py-3">{footer}</div>}
+          {footer && <div className="flex justify-end gap-2 px-6 pb-5 pt-2">{footer}</div>}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

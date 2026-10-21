@@ -15,7 +15,7 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
 export function SectionTitle({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
-      <h2 className="text-[15px] font-semibold">{children}</h2>
+      <h2 className="text-[16px] font-medium tracking-tight">{children}</h2>
       {action}
     </div>
   );
@@ -91,12 +91,12 @@ export function Tabs({
 }) {
   return (
     <TabsPrimitive.Root value={value} onValueChange={onValueChange}>
-      <TabsPrimitive.List className={cn("inline-flex gap-1 rounded-full bg-panel-2 p-1", className)}>
+      <TabsPrimitive.List className={cn("inline-flex gap-1 rounded-xl bg-panel-2 p-1", className)}>
         {tabs.map((tab) => (
           <TabsPrimitive.Trigger
             key={tab.value}
             value={tab.value}
-            className="rounded-full px-3 py-1 text-[13px] font-medium text-ink-2 transition-colors data-[state=active]:bg-panel data-[state=active]:text-ink data-[state=active]:shadow-card"
+            className="rounded-lg px-3 py-1.5 text-[13.5px] font-medium text-ink-2 transition-colors data-[state=active]:bg-panel data-[state=active]:text-ink data-[state=active]:shadow-card"
           >
             {tab.label}
           </TabsPrimitive.Trigger>
@@ -115,7 +115,7 @@ export function DropdownContent({ children, align = "end" }: { children: React.R
       <DropdownPrimitive.Content
         align={align}
         sideOffset={6}
-        className="z-50 min-w-48 rounded-xl border border-rule bg-panel p-1 shadow-pop"
+        className="z-50 min-w-48 rounded-xl border border-rule bg-panel p-1.5 shadow-pop"
       >
         {children}
       </DropdownPrimitive.Content>
@@ -139,7 +139,7 @@ export function DropdownItem({
       onSelect={onSelect}
       disabled={disabled}
       className={cn(
-        "flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none data-[disabled]:cursor-not-allowed data-[highlighted]:bg-panel-2 data-[disabled]:opacity-45 [&_svg]:size-4",
+        "flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[14px] outline-none data-[disabled]:cursor-not-allowed data-[highlighted]:bg-panel-2 data-[disabled]:opacity-45 [&_svg]:size-4",
         danger ? "text-red" : "text-ink",
       )}
     >
@@ -172,7 +172,7 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-rule-strong px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-rule-strong bg-stage px-6 py-14 text-center">
       {icon && <div className="text-ink-3 [&_svg]:size-7">{icon}</div>}
       <div>
         <p className="font-medium">{title}</p>

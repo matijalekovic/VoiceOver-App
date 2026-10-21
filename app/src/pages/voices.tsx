@@ -107,7 +107,7 @@ function VoiceCard({ voice, onDelete }: { voice: Voice; onDelete: (v: Voice) => 
           </DropdownTrigger>
           <DropdownContent>
             <DropdownItem onSelect={() => navigate(`/generate?voice=${voice.id}`)} disabled={voice.status !== "ready"}>
-              <AudioLines /> Use in Generate
+              <AudioLines /> Use in Text to Speech
             </DropdownItem>
             <DropdownItem onSelect={() => navigate(`/voices/${voice.id}`)}>
               <Pencil /> Edit
@@ -160,7 +160,7 @@ export function Voices() {
   return (
     <>
       <PageHeader
-        title="My Voices"
+        title="Voices"
         description="Voice profiles cloned from authorised recordings. They stay on this Mac."
         actions={
           <>

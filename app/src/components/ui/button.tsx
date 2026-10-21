@@ -5,23 +5,23 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-colors disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        primary: "bg-accent text-accent-ink hover:opacity-90",
+        primary: "bg-accent text-accent-ink shadow-control hover:opacity-85",
         secondary: "bg-panel-2 text-ink hover:bg-panel-3",
-        outline: "border border-rule-strong bg-panel text-ink hover:bg-panel-2",
+        outline: "border border-rule-strong bg-panel text-ink shadow-control hover:bg-panel-2",
         ghost: "text-ink-2 hover:bg-panel-2 hover:text-ink",
         danger: "bg-red text-white hover:opacity-90",
         "danger-ghost": "text-red hover:bg-red-soft",
       },
       size: {
-        sm: "h-8 px-3 text-[13px]",
-        md: "h-9 px-4 text-sm",
-        lg: "h-11 px-6 text-[15px]",
-        icon: "size-9",
-        "icon-sm": "size-8",
+        sm: "h-8 rounded-lg px-3 text-[13px]",
+        md: "h-10 px-4 text-[14.5px]",
+        lg: "h-12 rounded-xl px-6 text-[15px]",
+        icon: "size-10",
+        "icon-sm": "size-8 rounded-lg",
       },
     },
     defaultVariants: { variant: "primary", size: "md" },
