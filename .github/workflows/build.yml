@@ -1,0 +1,91 @@
+# Builds the installers on GitHub's machines:
+# - every pull request and push to main: both installers, kept as workflow artifacts;
+# - a version tag (git tag v0.2.0 && git push origin v0.2.0): the same, published to a
+#   GitHub Release.
+# Builds are unsigned until signing credentials are added (see docs/INSTALL.md).
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # creating the Release on tags
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Tests
+        working-directory: backend
+        run: |
+          uv sync --frozen
+          uv run ruff check src tests
+          uv run pytest -q
+
+  installer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # Apple Silicon
+            target: aarch64-apple-darwin
+            files: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            files: app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      # Stages the backend source and the pinned uv binary next to the app. On Windows the
+      # Tauri config skips this step (no bash there), so it always runs here.
+      - name: Stage backend and uv
+        shell: bash
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+        run: bash scripts/prepare-bundle.sh
+      - name: Install UI dependencies
+        working-directory: app
+        run: npm ci
+      - name: Build installer
+        working-directory: app
+        run: npx tauri build --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voice-studio-${{ matrix.target }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [backend-tests, installer]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "1PAX Voice Studio ${GITHUB_REF_NAME}" \
+            --notes "Downloads: the .dmg is for Macs with Apple Silicon, the .exe installer for Windows 10/11 (64-bit). These builds are not code-signed yet; see the install guide (docs/INSTALL.md) for the one-time security prompt."

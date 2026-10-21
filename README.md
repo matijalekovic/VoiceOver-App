@@ -1,12 +1,17 @@
 # 1PAX Voice Studio
 
-A macOS desktop app for cloning authorised voices from recordings and producing voiceovers, in
-the manner of an ElevenLabs studio, with everything running locally: inference (Qwen3-TTS on
-Apple's MLX), reference audio, projects and exports. No accounts, no API subscription.
+A desktop app for Mac and Windows for cloning authorised voices from recordings and producing
+voiceovers, in the manner of an ElevenLabs studio, with everything running locally: inference
+(Qwen3-TTS: on Apple's MLX on Macs, PyTorch with CUDA on Windows), reference audio, projects and
+exports. No accounts, no API subscription.
 
-Target: MacBook Pro M5, 16 GB unified memory, macOS 14 or newer.
+Targets: Macs with Apple Silicon on macOS 14 or newer (developed on a MacBook Pro M5, 16 GB);
+Windows 10/11 PCs, ideally with an NVIDIA GPU.
 
-## Start here
+**Installing a release:** see [docs/INSTALL.md](docs/INSTALL.md). Installers for both platforms
+are built by GitHub Actions and published to Releases when a version tag is pushed.
+
+## Developing (Mac)
 
 | Step | What | Where |
 |---|---|---|

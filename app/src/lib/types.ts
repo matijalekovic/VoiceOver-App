@@ -205,7 +205,7 @@ export interface Project {
 }
 
 export interface ModelStatus {
-  state: "not_installed" | "downloading" | "installed" | "incomplete" | "failed";
+  state: "not_installed" | "queued" | "starting" | "downloading" | "installed" | "incomplete" | "failed";
   path: string;
   size_bytes?: number;
   downloaded_bytes?: number;
@@ -264,6 +264,8 @@ export interface SystemStatus {
     worker_rss_bytes: number | null;
     last_memory: { gpu_peak_bytes?: number; gpu_active_bytes?: number; rss_peak_bytes?: number };
     runtime_available: boolean;
+    /** apple: Apple GPU (MLX) · cuda: an NVIDIA GPU · cpu: neither, so generation is slow. */
+    accelerator: "apple" | "cuda" | "cpu";
   };
   memory: { total_bytes: number; available_bytes: number; pressure_level: number | null };
   jobs: { current_job_id: string | null; queued: number };

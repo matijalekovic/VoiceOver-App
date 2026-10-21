@@ -23,6 +23,19 @@ const APP_DIR_NAME: &str = "1PAX Voice Studio";
 const LOG_LINES: usize = 200;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+/// Windows: start helper processes without a console window.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Keeps console windows from flashing up for the processes the app starts on Windows.
+fn hidden(cmd: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
 
 #[derive(Clone, Serialize)]
 pub struct BackendState {
@@ -54,7 +67,9 @@ pub struct Backend {
 
 impl Backend {
     pub fn new(app: AppHandle) -> Result<Self, Box<dyn std::error::Error>> {
-        let data_dir = app.path().data_dir()?.join(APP_DIR_NAME);
+        // Windows: the per-machine local folder, so gigabytes of models stay out of a
+        // roaming profile. macOS: Application Support either way.
+        let data_dir = app.path().local_data_dir()?.join(APP_DIR_NAME);
         fs::create_dir_all(&data_dir)?;
         Ok(Self {
             app,
@@ -152,6 +167,7 @@ impl Backend {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        hidden(&mut command);
         #[cfg(unix)]
         {
             // Its own process group, so quitting can signal the server and its inference
@@ -285,7 +301,12 @@ impl Backend {
             .map_err(|e| e.to_string())?
             .join("backend");
         let runtime = self.data_dir.join("runtime");
-        let python = runtime.join("venv").join("bin").join("python");
+        // pythonw on Windows: no console window for the server or its workers.
+        let python = if cfg!(windows) {
+            runtime.join("venv").join("Scripts").join("pythonw.exe")
+        } else {
+            runtime.join("venv").join("bin").join("python")
+        };
         let stamp = runtime_stamp(&resources)?;
         let marker = runtime.join("installed.txt");
         let installed = fs::read_to_string(&marker).unwrap_or_default();
@@ -308,7 +329,7 @@ impl Backend {
         let source = runtime.join("src");
         let _ = fs::remove_dir_all(&source);
         copy_dir(resources, &source).map_err(|e| format!("Could not copy the backend: {e}"))?;
-        let mut child = Command::new(uv)
+        let mut child = hidden(&mut Command::new(uv))
             .args(["sync", "--frozen", "--no-dev", "--no-editable", "--project"])
             .arg(&source)
             .env("UV_PROJECT_ENVIRONMENT", runtime.join("venv"))
@@ -349,8 +370,13 @@ fn kill_group(child: &mut Child) {
     unsafe {
         libc::kill(-pid, libc::SIGTERM);
     }
+    // Windows has no process groups: end the server and its inference worker as a tree.
     #[cfg(not(unix))]
-    let _ = child.kill();
+    let _ = hidden(&mut Command::new("taskkill"))
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
     let deadline = Instant::now() + SHUTDOWN_GRACE;
     while Instant::now() < deadline {
         if let Ok(Some(_)) = child.try_wait() {
@@ -379,9 +405,7 @@ fn free_port() -> Result<u16, String> {
 
 fn random_token() -> Result<String, String> {
     let mut bytes = [0u8; 32];
-    fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| format!("Could not generate a token: {e}"))?;
+    getrandom::fill(&mut bytes).map_err(|e| format!("Could not generate a token: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
@@ -415,16 +439,19 @@ fn runtime_stamp(resources: &Path) -> Result<String, String> {
     Ok(format!("{}-{hash:016x}", env!("CARGO_PKG_VERSION")))
 }
 
+const UV_EXE: &str = if cfg!(windows) { "uv.exe" } else { "uv" };
+
 fn bundled_uv() -> Option<PathBuf> {
-    // Tauri places external binaries next to the main executable (Contents/MacOS).
+    // Tauri places external binaries next to the main executable (Contents/MacOS on macOS,
+    // the install folder on Windows).
     let exe = std::env::current_exe().ok()?;
-    let candidate = exe.parent()?.join("uv");
+    let candidate = exe.parent()?.join(UV_EXE);
     candidate.exists().then_some(candidate)
 }
 
 fn find_uv() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).map(|d| d.join("uv")).collect())
+        .map(|p| std::env::split_paths(&p).map(|d| d.join(UV_EXE)).collect())
         .unwrap_or_default();
     if let Some(home) = std::env::var_os("HOME") {
         candidates.push(PathBuf::from(home).join(".local/bin/uv"));
