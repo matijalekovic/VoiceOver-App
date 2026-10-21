@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from ..errors import EngineError, JobCancelled
+from .metal import apply_kernel_workaround
 
 log = logging.getLogger("voice_studio.inference")
 
@@ -206,6 +207,7 @@ class InferenceClient:
 
     # -- process lifecycle -------------------------------------------------
     def _start(self) -> None:
+        apply_kernel_workaround()  # the spawned worker inherits the environment it sets
         self._cancel = self._ctx.Event()
         parent_conn, child_conn = self._ctx.Pipe()
         proc = self._ctx.Process(
