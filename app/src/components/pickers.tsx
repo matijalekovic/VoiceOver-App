@@ -76,7 +76,7 @@ export function ModelPicker({
   size?: "sm" | "md";
 }) {
   const { data } = useModels();
-  const options = (data ?? []).map((m) => ({
+  const options = (data ?? []).filter((m) => m.kind === "tts").map((m) => ({
     value: m.id,
     label: `${m.tier === "quality" ? "Quality" : "Lightweight"} · ${m.parameters}${m.quantization !== "bf16" ? ` ${m.quantization}` : ""}`,
     description:

@@ -298,3 +298,101 @@ def test_upload_rejects_unsupported_and_oversized(client, tmp_path):
             f"/api/voices/{voice['id']}/references", files={"file": ("big.wav", fh, "audio/wav")}
         )
     assert res.status_code == 413
+
+
+def _upload(client, voice_id: str, path: Path):
+    with open(path, "rb") as fh:
+        return client.post(
+            f"/api/voices/{voice_id}/references", files={"file": (path.name, fh, "audio/wav")}
+        )
+
+
+def test_create_voice_from_recordings_and_choose_a_clip(client, tmp_path, data_dir):
+    from conftest import install_fake_stt
+
+    voice = client.post(
+        "/api/voices",
+        json={
+            "name": "Ana",
+            "language": "english",
+            "consent": {"confirmed": True, "speaker": "Ana Example", "scope": "Internal narration"},
+        },
+    ).json()
+    vid = voice["id"]
+    # Two recordings, together well over the old one-minute limit.
+    assert _upload(client, vid, speech_like_wav(tmp_path / "a.wav", seconds=70)).status_code == 201
+    assert _upload(client, vid, speech_like_wav(tmp_path / "b.wav", seconds=40)).status_code == 201
+    # A third would pass three minutes in total.
+    over = _upload(client, vid, speech_like_wav(tmp_path / "c.wav", seconds=80))
+    assert over.status_code == 400 and over.json()["error"]["code"] == "recordings_too_long"
+
+    # Long recordings cannot be cloned from directly.
+    direct = client.post(
+        "/api/generate", json={"text": "Hi", "voice_id": vid, "language": "english"}
+    )
+    assert direct.json()["error"]["code"] == "create_voice_first"
+
+    # Creating needs the speech recognition model.
+    job = client.post(f"/api/voices/{vid}/create", json={}).json()
+    failed = wait_job(client, job["job_id"])
+    assert failed["status"] == "failed" and failed["error_code"] == "stt_not_installed"
+
+    install_fake_stt(data_dir / "models")
+    job = client.post(f"/api/voices/{vid}/create", json={}).json()
+    done = wait_job(client, job["job_id"], timeout=120)
+    assert done["status"] == "completed", done
+    voice = client.get(f"/api/voices/{vid}").json()
+    assert all(r["segments"] for r in voice["references"])
+    clips = voice["clips"]
+    assert len(clips) == 3
+    assert {c["reference_id"] for c in clips} == {r["id"] for r in voice["references"]}
+    for clip in clips:
+        assert 10 <= clip["end_s"] - clip["start_s"] <= 25
+        assert clip["transcript"].startswith("Sentence at")
+        assert clip["demo_generation_id"]
+        assert client.get(f"/api/voices/{vid}/clips/{clip['id']}/audio").status_code == 200
+    assert voice["status"] == "draft"
+
+    # Correct a transcript and voice the demo again; the old demo is replaced.
+    first = clips[0]
+    client.patch(f"/api/voices/{vid}/clips/{first['id']}", json={"transcript": "Fixed words."})
+    redo = client.post(f"/api/voices/{vid}/clips/{first['id']}/demo", json={}).json()
+    assert wait_job(client, redo["job_id"])["status"] == "completed"
+    refreshed = next(
+        c for c in client.get(f"/api/voices/{vid}").json()["clips"] if c["id"] == first["id"]
+    )
+    assert refreshed["transcript"] == "Fixed words."
+    assert refreshed["demo_generation_id"] != first["demo_generation_id"]
+
+    saved = client.post(f"/api/voices/{vid}/clips/{first['id']}/choose").json()
+    assert saved["status"] == "ready" and saved["clip_id"] == first["id"]
+    assert saved["preferred_sample_generation_id"] == refreshed["demo_generation_id"]
+
+    # Generation now clones from the chosen clip.
+    gen = client.post(
+        "/api/generate", json={"text": "Hello there.", "voice_id": vid, "language": "english"}
+    )
+    finished = wait_job(client, gen.json()["job_id"])
+    assert finished["status"] == "completed"
+    generation = client.get(f"/api/generations/{finished['generation_id']}").json()
+    assert generation["reference_id"] == first["id"]
+
+    # Creating again keeps the chosen clip and replaces the other candidates.
+    again = client.post(f"/api/voices/{vid}/create", json={}).json()
+    assert wait_job(client, again["job_id"], timeout=120)["status"] == "completed"
+    after = client.get(f"/api/voices/{vid}").json()
+    assert first["id"] in {c["id"] for c in after["clips"]}
+    assert not {c["id"] for c in clips[1:]} & {c["id"] for c in after["clips"]}
+
+    # Removing the recording the chosen clip came from puts the voice back in draft.
+    client.delete(f"/api/voices/{vid}/references/{first['reference_id']}")
+    after = client.get(f"/api/voices/{vid}").json()
+    assert after["clip_id"] is None and after["status"] == "draft"
+    assert all(c["reference_id"] != first["reference_id"] for c in after["clips"])
+
+
+def test_whisper_cannot_be_used_as_a_voice_model(client):
+    from conftest import FAKE_STT
+
+    res = client.post("/api/models/load", json={"model_id": FAKE_STT})
+    assert res.json()["error"]["code"] == "not_a_voice_model"

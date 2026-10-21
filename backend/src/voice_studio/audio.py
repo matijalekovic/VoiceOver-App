@@ -98,6 +98,9 @@ def frame_rms_db(audio: np.ndarray, sample_rate: int) -> np.ndarray:
     return 20 * np.log10(np.maximum(rms, 1e-9))
 
 
+MAX_RECORDING_S = 180.0  # per recording, and for all of a voice's recordings together
+
+
 @dataclass
 class QualityReport:
     duration_s: float
@@ -129,21 +132,19 @@ def analyse(audio: np.ndarray, sample_rate: int) -> QualityReport:
         flag(
             "too_short",
             "error",
-            "The recording is under 3 seconds. Use 10–30 seconds of clean speech.",
+            "The recording is under 3 seconds. Use at least 10 seconds of clean speech.",
         )
     elif duration < 10:
         flag(
             "short",
             "warning",
-            "Under 10 seconds can work but usually clones less reliably. 10–30 seconds is recommended.",
+            "Under 10 seconds can work but usually clones less reliably. 30 seconds to 3 minutes gives the best choice of clips.",
         )
-    elif duration > 60:
-        flag("too_long", "error", "Over 60 seconds. Trim the reference to the best 10–30 seconds.")
-    elif duration > 30:
+    elif duration > MAX_RECORDING_S:
         flag(
-            "long",
-            "warning",
-            "Over 30 seconds. Longer references slow every generation; 10–30 seconds is recommended.",
+            "too_long",
+            "error",
+            "Over 3 minutes. Trim it, or split it into several recordings (3 minutes in total).",
         )
     if peak < 1e-4:
         flag("silent", "error", "The recording is silent.")

@@ -80,8 +80,35 @@ class Reference(Model):
     trim_end_s: float
     quality: Quality
     source_quality: Quality | None = None
+    segments: list[dict[str, Any]] | None = None  # Whisper's timed transcript, once transcribed
     created_at: str
     updated_at: str
+
+
+class Clip(Model):
+    """A candidate reference cut from a recording; the chosen one is what the voice clones."""
+
+    id: str
+    voice_id: str
+    reference_id: str
+    start_s: float
+    end_s: float
+    transcript: str
+    quality: Quality
+    score: float
+    demo_generation_id: str | None
+    created_at: str
+
+
+class ClipUpdate(Model):
+    transcript: str = Field(min_length=1, max_length=2000)
+
+
+class VoiceBuild(Model):
+    model_id: str | None = None
+    language: str | None = None
+    text: str | None = Field(default=None, max_length=1000)  # demo script; a preset when empty
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
 
 
 class ReferenceUpdate(Model):
@@ -99,10 +126,12 @@ class Voice(Model):
     status: Literal["draft", "ready"]
     primary_reference_id: str | None
     preferred_sample_generation_id: str | None
+    clip_id: str | None = None
     consent: dict[str, Any]
     created_at: str
     updated_at: str
     references: list[Reference] = []
+    clips: list[Clip] = []
     generation_count: int = 0
 
 

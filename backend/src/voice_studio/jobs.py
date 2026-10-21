@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import psutil
 
 from . import audio, text
+from .catalog import WHISPER_LANGUAGES
 from .db import new_id, now_iso
 from .errors import EngineError, JobCancelled, NotFound, StudioError
 
@@ -271,11 +272,13 @@ class JobRunner:
             return self._load_model(job, job["payload"]["model_id"])
         if job["kind"] in SYNTHESIS_KINDS:
             return self._synthesize(job)
+        if job["kind"] == "voice_create":
+            return self._create_voice(job)
         raise StudioError("unknown_job", f"Unknown job kind {job['kind']}.")
 
     def _load_model(self, job: dict[str, Any], model_id: str) -> dict[str, Any]:
         models = self.studio.models
-        spec = models.spec(model_id)
+        spec = models.voice_spec(model_id)
         if not models.is_installed(model_id):
             raise StudioError(
                 "model_not_installed",
@@ -325,6 +328,8 @@ class JobRunner:
         work_dir = studio.paths.cache / "jobs" / job_id
         last_update = 0.0
 
+        extra = payload.get("progress_extra") or {}
+
         def on_progress(message: dict[str, Any]) -> None:
             nonlocal last_update
             # Catches a cancel that arrived between loading and the start of synthesis.
@@ -341,11 +346,14 @@ class JobRunner:
                     "chunk": message["chunk"],
                     "chunks": message["chunks"],
                     "audio_seconds": message["audio_seconds"],
+                    **extra,
                 },
             )
 
         self._set_stage(
-            job_id, "synthesizing", {"chunk": 0, "chunks": len(pieces), "audio_seconds": 0}
+            job_id,
+            "synthesizing",
+            {"chunk": 0, "chunks": len(pieces), "audio_seconds": 0, **extra},
         )
         result = studio.inference.synthesize(
             {
@@ -359,7 +367,9 @@ class JobRunner:
         )
 
         self._set_stage(
-            job_id, "processing", {"chunks": len(pieces), "audio_seconds": result["audio_seconds"]}
+            job_id,
+            "processing",
+            {"chunks": len(pieces), "audio_seconds": result["audio_seconds"], **extra},
         )
         sentence_gap = int(studio.pref("sentence_pause_ms")) / 1000
         paragraph_gap = int(studio.pref("paragraph_pause_ms")) / 1000
@@ -435,8 +445,107 @@ class JobRunner:
                     "UPDATE segments SET active_generation_id = ?, updated_at = ? WHERE id = ?",
                     (generation_id, now_iso(), job["segment_id"]),
                 )
+        if payload.get("clip_id"):
+            VoiceService(studio).set_clip_demo(
+                payload["voice_id"], payload["clip_id"], generation_id
+            )
         log.info(
             "generated %.1fs of audio in %.1fs (RTF %s)",
             result["audio_seconds"], result["elapsed_s"], result["real_time_factor"],
         )  # fmt: skip
         return {"generation_id": generation_id, "stats": stats}
+
+    def _create_voice(self, job: dict[str, Any]) -> dict[str, Any]:
+        """Transcribe the recordings, cut candidate clips and voice the demo script with each."""
+        from .clips import demo_script, pick_candidates
+        from .voices import VoiceService
+
+        payload = job["payload"]
+        job_id = job["id"]
+        voice_id = payload["voice_id"]
+        language = payload["language"]
+        models = self.studio.models
+        voices = VoiceService(self.studio)
+        references = voices.get(voice_id)["references"]
+        if not references:
+            raise StudioError("reference_required", "Add at least one recording first.")
+
+        pending = [r for r in references if r["segments"] is None]
+        if pending:
+            stt = next((s for s in models.catalog if s.kind == "stt"), None)
+            if stt is None or not models.is_installed(stt.id):
+                label = stt.label if stt else "The speech recognition model"
+                raise StudioError(
+                    "stt_not_installed",
+                    f"{label} is needed to transcribe the recordings. Download it in Settings → Models.",
+                )
+            for number, ref in enumerate(pending, start=1):
+                self._check_cancel(job_id)
+                self._set_stage(
+                    job_id,
+                    "processing",
+                    {
+                        "step": "transcribing",
+                        "message": f"Transcribing recording {number} of {len(pending)}",
+                    },
+                )
+                segments = self.studio.inference.transcribe(
+                    stt.engine,
+                    models.model_dir(stt.id),
+                    voices.reference_audio_path(voice_id, ref["id"], "source"),
+                    WHISPER_LANGUAGES.get(ref["language"] or language),
+                )
+                voices.set_segments(voice_id, ref["id"], segments)
+
+        self._check_cancel(job_id)
+        self._set_stage(
+            job_id, "processing", {"step": "choosing", "message": "Choosing the best clips"}
+        )
+        recordings = []
+        for ref in voices.get(voice_id)["references"]:
+            samples, sr = audio.read_audio(
+                voices.reference_audio_path(voice_id, ref["id"], "source")
+            )
+            # Only speech inside the recording's trim window counts.
+            segments = [
+                s
+                for s in ref["segments"] or []
+                if s["start"] >= ref["trim_start_s"] - 0.3 and s["end"] <= ref["trim_end_s"] + 0.3
+            ]
+            recordings.append((ref["id"], segments, samples, sr))
+        candidates = pick_candidates(recordings)
+        if not candidates:
+            raise StudioError(
+                "no_usable_speech",
+                "No usable stretch of speech was found. Add a clearer recording of at least 10 seconds.",
+            )
+        clips = voices.replace_candidates(voice_id, candidates)
+
+        script = payload.get("text") or demo_script(language)
+        seed = payload.get("seed")
+        if seed is None:
+            seed = random.randrange(2**31 - 1)  # one seed for all, so only the clip differs
+        generation_ids = []
+        for number, clip in enumerate(clips, start=1):
+            self._check_cancel(job_id)
+            demo = self._synthesize(
+                {
+                    **job,
+                    "kind": "voice_test",
+                    "payload": {
+                        "text": script,
+                        "voice_id": voice_id,
+                        "reference_id": clip["id"],
+                        "clip_id": clip["id"],
+                        "language": language,
+                        "model_id": payload["model_id"],
+                        "seed": seed,
+                        "progress_extra": {
+                            "step": "demo",
+                            "message": f"Voicing demo {number} of {len(clips)}",
+                        },
+                    },
+                }
+            )
+            generation_ids.append(demo["generation_id"])
+        return {"clip_ids": [c["id"] for c in clips], "generation_ids": generation_ids}

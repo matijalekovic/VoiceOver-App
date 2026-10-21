@@ -25,7 +25,7 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
         )
     clone = VoiceService(studio).clone_reference(body.voice_id, None)  # fail now, not in the queue
     model_id = body.model_id or studio.pref("default_model_id")
-    studio.models.spec(model_id)
+    studio.models.voice_spec(model_id)
     job = studio.jobs.submit(
         "tts",
         {

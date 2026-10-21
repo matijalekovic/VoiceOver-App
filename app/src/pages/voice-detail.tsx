@@ -6,12 +6,13 @@ import {
   Download,
   FileAudio,
   Mic,
+  Pencil,
   Scissors,
   ShieldCheck,
   Sparkles,
-  Star,
   Trash2,
   Upload,
+  Wand2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -24,13 +25,17 @@ import { LanguagePicker, ModelPicker } from "@/components/pickers";
 import { Recorder } from "@/components/recorder";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/form";
-import { Badge, Callout, Card, SectionTitle, Skeleton, Tabs, Tooltip } from "@/components/ui/misc";
+import { Badge, Callout, Card, Progress, SectionTitle, Skeleton, Tabs } from "@/components/ui/misc";
 import { Waveform } from "@/components/waveform";
 import { api } from "@/lib/api";
-import { toastError, useJob, useSettings } from "@/lib/hooks";
-import type { Reference, Voice } from "@/lib/types";
-import { cn, formatDate, formatDuration, languageLabel, SAMPLE_LINES } from "@/lib/utils";
+import { toastError, useJob, useModels, useSettings } from "@/lib/hooks";
+import type { Clip, Reference, Voice } from "@/lib/types";
+import { cn, formatBytes, formatDate, formatDuration, languageLabel, SAMPLE_LINES } from "@/lib/utils";
 import { DeleteVoiceDialog } from "./voices";
+
+/** All of a voice's recordings together; the backend enforces the same limit. */
+const MAX_TOTAL_S = 180;
+const AUDIO_ACCEPT = ".wav,.mp3,.m4a,.flac,.aac,.aiff,.aif,.caf,.ogg,.webm,audio/*";
 
 function useVoice(voiceId: string) {
   return useQuery({ queryKey: ["voice", voiceId], queryFn: () => api.voice(voiceId) });
@@ -45,23 +50,31 @@ function Check({ done, children }: { done: boolean; children: React.ReactNode })
   );
 }
 
-function AddReference({ voice, onAdded }: { voice: Voice; onAdded: () => void }) {
+function AddRecordings({ voice, remaining, onAdded }: { voice: Voice; remaining: number; onAdded: () => void }) {
   const [mode, setMode] = useState<"upload" | "record">("upload");
-  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const full = remaining < 1;
 
-  async function send(blob: Blob, filename: string) {
-    setBusy(true);
-    try {
-      await api.uploadReference(voice.id, blob, filename, "");
-      onAdded();
-    } catch (err) {
-      toastError(err, "The recording could not be used");
-    } finally {
-      setBusy(false);
+  async function send(files: { blob: Blob; name: string }[]) {
+    if (!files.length) return;
+    setProgress({ done: 0, total: files.length });
+    for (const [index, file] of files.entries()) {
+      try {
+        await api.uploadReference(voice.id, file.blob, file.name, "");
+        onAdded();
+      } catch (err) {
+        toastError(err, `“${file.name}” could not be added`);
+      }
+      setProgress({ done: index + 1, total: files.length });
     }
+    setProgress(null);
   }
+
+  const fromList = (list: FileList | null) =>
+    void send(Array.from(list ?? []).map((f) => ({ blob: f, name: f.name })));
+  const busy = progress !== null;
 
   return (
     <div className="space-y-3">
@@ -79,179 +92,393 @@ function AddReference({ voice, onAdded }: { voice: Voice; onAdded: () => void })
           onClick={() => input.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
             setDragging(true);
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            const file = e.dataTransfer.files[0];
-            if (file) void send(file, file.name);
+            if (!busy && !full) fromList(e.dataTransfer.files);
           }}
           className={cn(
-            "flex w-full flex-col items-center gap-2 rounded-2xl border border-dashed px-6 py-10 text-center transition-colors",
+            "flex w-full flex-col items-center gap-2 rounded-2xl border border-dashed px-6 py-9 text-center transition-colors disabled:opacity-60",
             dragging ? "border-ink bg-panel-2" : "border-rule-strong hover:bg-panel-2/60",
           )}
-          disabled={busy}
+          disabled={busy || full}
         >
           <FileAudio className="size-6 text-ink-3" />
-          <span className="font-medium">{busy ? "Processing…" : "Drop a recording or click to choose"}</span>
-          <span className="text-xs text-ink-3">WAV, MP3, M4A or FLAC · 10–30 seconds of clean speech</span>
+          <span className="font-medium">
+            {busy
+              ? `Adding ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
+              : full
+                ? "3 minutes reached — remove a recording to add another"
+                : "Drop recordings here or click to choose"}
+          </span>
+          <span className="text-xs text-ink-3">
+            WAV, MP3, M4A or FLAC · one or several files · {formatDuration(remaining)} left of 3:00
+          </span>
           <input
             ref={input}
             type="file"
-            accept=".wav,.mp3,.m4a,.flac,.aac,.aiff,.aif,audio/*"
+            multiple
+            accept={AUDIO_ACCEPT}
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void send(file, file.name);
+              fromList(e.target.files);
               e.target.value = "";
             }}
           />
         </button>
       ) : (
-        <Recorder onRecorded={(blob, name) => void send(blob, name)} />
+        <Recorder onRecorded={(blob, name) => void send([{ blob, name }])} />
       )}
     </div>
   );
 }
 
-function QualitySummary({ reference }: { reference: Reference }) {
-  const q = reference.quality;
-  const flags = q.flags;
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        <Badge>{formatDuration(q.duration_s)} used</Badge>
-        <Badge tone={q.snr_db >= 30 ? "green" : q.snr_db >= 20 ? "neutral" : "amber"}>≈{q.snr_db.toFixed(0)} dB above noise</Badge>
-        <Badge>peak {q.peak_dbfs.toFixed(1)} dBFS</Badge>
-        {flags.length === 0 && <Badge tone="green">No issues found</Badge>}
-      </div>
-      {flags.map((f) => (
-        <Callout key={f.code} tone={f.severity === "error" ? "red" : "amber"} icon={<AlertTriangle />}>
-          {f.message}
-        </Callout>
-      ))}
-    </div>
-  );
-}
-
-function ReferenceEditor({ voice, reference, onChanged }: { voice: Voice; reference: Reference; onChanged: () => void }) {
+function RecordingRow({ voice, reference, onChanged }: { voice: Voice; reference: Reference; onChanged: () => void }) {
+  const [trimming, setTrimming] = useState(false);
   const [trim, setTrim] = useState({ start: reference.trim_start_s, end: reference.trim_end_s });
-  const [transcript, setTranscript] = useState(reference.transcript);
-  const [savingTrim, setSavingTrim] = useState(false);
-  const [savingText, setSavingText] = useState(false);
-
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     setTrim({ start: reference.trim_start_s, end: reference.trim_end_s });
-    setTranscript(reference.transcript);
-  }, [reference.id, reference.trim_start_s, reference.trim_end_s, reference.transcript]);
-
-  const trimChanged = Math.abs(trim.start - reference.trim_start_s) > 0.02 || Math.abs(trim.end - reference.trim_end_s) > 0.02;
-  const textChanged = transcript.trim() !== reference.transcript;
+  }, [reference.trim_start_s, reference.trim_end_s]);
+  const q = reference.quality;
+  const errors = q.flags.filter((f) => f.severity === "error");
+  const warnings = q.flags.filter((f) => f.severity === "warning");
+  const trimChanged =
+    Math.abs(trim.start - reference.trim_start_s) > 0.02 || Math.abs(trim.end - reference.trim_end_s) > 0.02;
 
   async function applyTrim() {
-    setSavingTrim(true);
+    setSaving(true);
     try {
       await api.updateReference(voice.id, reference.id, { trim_start_s: trim.start, trim_end_s: trim.end });
+      setTrimming(false);
       onChanged();
     } catch (err) {
       toastError(err, "Could not trim");
     } finally {
-      setSavingTrim(false);
+      setSaving(false);
     }
   }
 
-  async function saveTranscript() {
-    setSavingText(true);
+  async function remove() {
     try {
-      await api.updateReference(voice.id, reference.id, { transcript: transcript.trim() });
+      await api.deleteReference(voice.id, reference.id);
       onChanged();
-      toast.success("Transcript saved");
     } catch (err) {
-      toastError(err, "Could not save the transcript");
-    } finally {
-      setSavingText(false);
+      toastError(err, "Could not remove the recording");
     }
   }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-[13px] font-medium">
-            Original recording <span className="font-normal text-ink-3">· {reference.original_filename}</span>
+    <li className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <PlayButton id={reference.id} url={api.referenceAudioUrl(voice.id, reference.id, "reference", reference.updated_at)} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-medium">{reference.original_filename}</p>
+          <p className="truncate text-[12.5px] text-ink-3">
+            <span className="num">{formatDuration(reference.duration_s)}</span> ·{" "}
+            <span className={q.snr_db < 20 ? "text-amber" : undefined}>≈{q.snr_db.toFixed(0)} dB above noise</span>
+            {reference.segments ? (
+              <> · “{reference.transcript}”</>
+            ) : (
+              <> · transcribed when you create the voice</>
+            )}
           </p>
-          <span className="num text-xs text-ink-3">
-            Selection {trim.start.toFixed(1)}s – {trim.end.toFixed(1)}s ({(trim.end - trim.start).toFixed(1)}s)
-          </span>
         </div>
-        <Waveform
-          url={api.referenceAudioUrl(voice.id, reference.id, "source")}
-          compact
-          height={64}
-          region={trim}
-          onRegionChange={(start, end) => setTrim({ start, end })}
-        />
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <p className="text-xs text-ink-3">Drag the edges of the highlighted area to keep only the best 10–30 seconds. Silence at the edges was removed automatically.</p>
-          <Button size="sm" variant={trimChanged ? "primary" : "outline"} disabled={!trimChanged} loading={savingTrim} onClick={applyTrim}>
-            <Scissors /> Apply trim
-          </Button>
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[13px] font-medium">Cleaned reference (what the model hears)</p>
-        <Waveform url={api.referenceAudioUrl(voice.id, reference.id, "reference", reference.updated_at)} compact height={48} />
-        <div className="mt-3">
-          <QualitySummary reference={reference} />
-        </div>
-      </div>
-
-      <Field
-        label="Exact transcript"
-        htmlFor="transcript"
-        hint="Type exactly what is said in the cleaned reference, word for word, including repeated words or fillers. A wrong transcript is the most common cause of poor clones."
-      >
-        <Textarea
-          id="transcript"
-          value={transcript}
-          onChange={(e) => setTranscript(e.target.value)}
-          placeholder="Listen to the cleaned reference and type every word…"
-          className="min-h-24"
-        />
-      </Field>
-      <div className="flex justify-end">
-        <Button size="sm" disabled={!textChanged} loading={savingText} onClick={saveTranscript}>
-          Save transcript
+        <Button size="sm" variant="ghost" onClick={() => setTrimming((v) => !v)}>
+          <Scissors /> {trimming ? "Close" : "Trim"}
         </Button>
+        <Button size="icon-sm" variant="ghost" onClick={remove} aria-label="Remove recording">
+          <Trash2 />
+        </Button>
+      </div>
+      {[...errors, ...warnings].map((f) => (
+        <Callout key={f.code} tone={f.severity === "error" ? "red" : "amber"} icon={<AlertTriangle />} className="mt-2">
+          {f.message}
+        </Callout>
+      ))}
+      {trimming && (
+        <div className="mt-3 space-y-2">
+          <Waveform
+            url={api.referenceAudioUrl(voice.id, reference.id, "source")}
+            compact
+            height={64}
+            region={trim}
+            onRegionChange={(start, end) => setTrim({ start, end })}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-ink-3">
+              Drag the edges to leave out coughs, music or other voices. Only speech inside the selection is used.
+            </p>
+            <Button size="sm" disabled={!trimChanged} loading={saving} onClick={applyTrim}>
+              Apply trim
+            </Button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function RecordingsCard({ voice, onChanged }: { voice: Voice; onChanged: () => void }) {
+  const total = voice.references.reduce((sum, r) => sum + r.duration_s, 0);
+  return (
+    <Card className="p-5">
+      <SectionTitle
+        action={
+          <span className="num text-[13px] text-ink-3">
+            {formatDuration(total)} of 3:00
+          </span>
+        }
+      >
+        Recordings
+      </SectionTitle>
+      <Progress value={(total / MAX_TOTAL_S) * 100} className="mb-4" />
+      {voice.references.length > 0 && (
+        <ul className="mb-4 divide-y divide-rule rounded-xl border border-rule">
+          {voice.references.map((r) => (
+            <RecordingRow key={r.id} voice={voice} reference={r} onChanged={onChanged} />
+          ))}
+        </ul>
+      )}
+      <AddRecordings voice={voice} remaining={MAX_TOTAL_S - total} onAdded={onChanged} />
+      <p className="mt-3 text-xs text-ink-3">
+        Clean speech from one person, no music or other voices. The more you add (up to 3 minutes), the more there is to
+        choose the best clip from.
+      </p>
+    </Card>
+  );
+}
+
+function SpeechModelNotice() {
+  const queryClient = useQueryClient();
+  const { data: models } = useModels();
+  const stt = models?.find((m) => m.kind === "stt");
+  if (!stt || stt.status.state === "installed") return null;
+  const s = stt.status;
+  if (s.state === "downloading") {
+    const percent = s.total_bytes ? ((s.downloaded_bytes ?? 0) / s.total_bytes) * 100 : null;
+    return (
+      <Callout tone="blue" className="mb-4">
+        <p className="mb-2 font-medium">
+          Downloading {stt.label} · {formatBytes(s.downloaded_bytes ?? 0)}
+          {s.total_bytes ? ` of ${formatBytes(s.total_bytes)}` : ""}
+        </p>
+        <Progress value={percent} />
+      </Callout>
+    );
+  }
+  return (
+    <Callout tone="amber" className="mb-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-0 flex-1">
+          Creating a voice transcribes your recordings with {stt.label} (~{stt.approx_download_gb} GB, one-time
+          download). {s.state === "failed" && s.error}
+        </p>
+        <Button
+          size="sm"
+          onClick={() =>
+            api
+              .downloadModel(stt.id)
+              .then(() => queryClient.invalidateQueries({ queryKey: ["models"] }))
+              .catch((err) => toastError(err, "Download could not start"))
+          }
+        >
+          <Download /> {s.state === "not_installed" ? "Download" : "Resume download"}
+        </Button>
+      </div>
+    </Callout>
+  );
+}
+
+function TakeCard({
+  voice,
+  clip,
+  index,
+  modelId,
+  language,
+  onChanged,
+}: {
+  voice: Voice;
+  clip: Clip;
+  index: number;
+  modelId: string | null;
+  language: string;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [transcript, setTranscript] = useState(clip.transcript);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const job = useJob(jobId, () => onChanged());
+  const redoing = !!job && !["completed", "failed", "cancelled"].includes(job.status);
+  const chosen = voice.clip_id === clip.id;
+  const source = voice.references.find((r) => r.id === clip.reference_id);
+  useEffect(() => setTranscript(clip.transcript), [clip.transcript]);
+
+  async function redo() {
+    try {
+      if (transcript.trim() !== clip.transcript) await api.updateClip(voice.id, clip.id, transcript.trim());
+      setEditing(false);
+      setJobId((await api.clipDemo(voice.id, clip.id, { model_id: modelId ?? undefined, language })).job_id);
+    } catch (err) {
+      toastError(err, "Could not redo the demo");
+    }
+  }
+
+  async function choose() {
+    setSaving(true);
+    try {
+      await api.chooseClip(voice.id, clip.id);
+      onChanged();
+      toast.success(`“${voice.name}” is saved and ready to use`);
+    } catch (err) {
+      toastError(err, "Could not save the voice");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-2xl border bg-panel p-4 shadow-card",
+        chosen ? "border-ink" : "border-rule",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium">Take {index + 1}</p>
+        {chosen ? <Badge tone="ink">In use</Badge> : index === 0 ? <Badge>Best match</Badge> : null}
+      </div>
+      {redoing && job ? (
+        <JobProgress job={job} />
+      ) : clip.demo_generation_id ? (
+        <Waveform key={clip.demo_generation_id} url={api.generationAudioUrl(clip.demo_generation_id)} compact height={48} />
+      ) : (
+        <p className="text-[13px] text-ink-3">No demo yet.</p>
+      )}
+      {job?.status === "failed" && <JobProgress job={job} onRetry={(j) => setJobId(j.id)} />}
+      <div className="flex items-center gap-2 rounded-xl bg-panel-2 px-2.5 py-2">
+        <PlayButton id={`clip-${clip.id}`} url={api.clipAudioUrl(voice.id, clip.id)} label="Play the clip" />
+        <p className="min-w-0 flex-1 truncate text-[12.5px] text-ink-2">
+          Clip <span className="num">{formatDuration(clip.end_s - clip.start_s)}</span> from{" "}
+          {source?.original_filename ?? "a recording"} at <span className="num">{formatDuration(clip.start_s)}</span>
+        </p>
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <Textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} className="min-h-20 text-[13.5px]" />
+          <p className="text-xs text-ink-3">Fix any misheard words so the text matches the clip exactly.</p>
+        </div>
+      ) : (
+        <p className="line-clamp-3 text-[13px] text-ink-2">“{clip.transcript}”</p>
+      )}
+      <div className="mt-auto flex flex-wrap gap-2">
+        {editing ? (
+          <>
+            <Button size="sm" onClick={redo} disabled={!transcript.trim()}>
+              Save and redo demo
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" onClick={choose} loading={saving} disabled={chosen || redoing || !clip.demo_generation_id}>
+              {chosen ? "Saved" : "Use this voice"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(true)} disabled={redoing}>
+              <Pencil /> Fix words
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function TestPanel({ voice, onChanged }: { voice: Voice; onChanged: () => void }) {
-  const queryClient = useQueryClient();
+function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => void }) {
+  const { data: settings } = useSettings();
+  const { data: models } = useModels();
+  const [language, setLanguage] = useState(voice.language);
+  const [modelId, setModelId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const job = useJob(jobId, () => onChanged());
+  useEffect(() => {
+    if (!modelId && settings) setModelId(settings.default_model_id);
+  }, [modelId, settings]);
+  const running = !!job && !["completed", "failed", "cancelled"].includes(job.status);
+  const total = voice.references.reduce((sum, r) => sum + r.duration_s, 0);
+  const sttReady = models?.find((m) => m.kind === "stt")?.status.state === "installed";
+  const needsTranscription = voice.references.some((r) => !r.segments);
+  const usable = voice.references.some((r) => !r.quality.flags.some((f) => f.severity === "error"));
+  const canCreate = usable && total >= 3 && !running && (sttReady || !needsTranscription);
+
+  async function create() {
+    try {
+      setJobId((await api.buildVoice(voice.id, { model_id: modelId ?? undefined, language })).job_id);
+    } catch (err) {
+      toastError(err, "Could not create the voice");
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <SectionTitle>{voice.clips.length ? "Pick the take you like" : "Create the voice"}</SectionTitle>
+      <p className="-mt-1 mb-4 text-[13.5px] text-ink-2">
+        Voice Studio transcribes your recordings, cuts the three cleanest 10–25 second clips and reads a demo script with
+        each. Listen, then keep the one that sounds most like the speaker.
+      </p>
+      <SpeechModelNotice />
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Demo language" className="w-44">
+          <LanguagePicker value={language} onChange={setLanguage} size="sm" />
+        </Field>
+        <Field label="Model" className="w-56">
+          <ModelPicker value={modelId} onChange={setModelId} size="sm" />
+        </Field>
+        <Button className="ml-auto" onClick={create} disabled={!canCreate}>
+          <Wand2 /> {voice.clips.length ? "Create new takes" : "Create voice"}
+        </Button>
+      </div>
+      {!voice.references.length && <p className="mt-3 text-xs text-ink-3">Add a recording first.</p>}
+      {job && <JobProgress job={job} onRetry={(j) => setJobId(j.id)} className="mt-4" />}
+      {voice.clips.length > 0 && !running && (
+        <div className="mt-5 grid gap-3">
+          {voice.clips.map((clip, index) => (
+            <TakeCard
+              key={clip.id}
+              voice={voice}
+              clip={clip}
+              index={index}
+              modelId={modelId}
+              language={language}
+              onChanged={onChanged}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TryPanel({ voice }: { voice: Voice }) {
   const { data: settings } = useSettings();
   const [text, setText] = useState(SAMPLE_LINES[voice.language] ?? SAMPLE_LINES.english);
   const [language, setLanguage] = useState(voice.language);
   const [modelId, setModelId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [latest, setLatest] = useState<string | null>(null);
-  const { data: tests } = useQuery({
-    queryKey: ["generations", "voice_test", voice.id],
-    queryFn: () => api.generations({ kind: "voice_test", voice_id: voice.id, limit: 20 }),
-  });
   useEffect(() => {
     if (!modelId && settings) setModelId(settings.default_model_id);
   }, [modelId, settings]);
   const job = useJob(jobId, (j) => {
     if (j.status === "completed" && j.generation_id) setLatest(j.generation_id);
-    void queryClient.invalidateQueries({ queryKey: ["generations", "voice_test", voice.id] });
   });
-  const primary = voice.references.find((r) => r.id === voice.primary_reference_id);
-  const canTest = !!primary && !!primary.transcript.trim();
   const busy = !!job && !["completed", "failed", "cancelled"].includes(job.status);
 
   async function run() {
@@ -261,23 +488,6 @@ function TestPanel({ voice, onChanged }: { voice: Voice; onChanged: () => void }
     } catch (err) {
       toastError(err, "Could not start the test");
     }
-  }
-
-  async function setPreview(id: string) {
-    try {
-      await api.updateVoice(voice.id, { preferred_sample_generation_id: id });
-      onChanged();
-      toast.success("Preview sample updated");
-    } catch (err) {
-      toastError(err);
-    }
-  }
-
-  async function remove(id: string) {
-    await api.deleteGeneration(id);
-    if (latest === id) setLatest(null);
-    onChanged();
-    await queryClient.invalidateQueries({ queryKey: ["generations", "voice_test", voice.id] });
   }
 
   return (
@@ -290,42 +500,12 @@ function TestPanel({ voice, onChanged }: { voice: Voice; onChanged: () => void }
         <Field label="Model" className="w-56">
           <ModelPicker value={modelId} onChange={setModelId} size="sm" />
         </Field>
-        <Button className="ml-auto" onClick={run} disabled={!canTest || busy || !text.trim()}>
-          <Sparkles /> Generate test
+        <Button className="ml-auto" onClick={run} disabled={busy || !text.trim()}>
+          <Sparkles /> Generate
         </Button>
       </div>
-      {!canTest && <p className="text-xs text-amber">Add a reference recording and its transcript first.</p>}
       {job && <JobProgress job={job} onRetry={(j) => setJobId(j.id)} />}
       {latest && <Waveform url={api.generationAudioUrl(latest)} autoPlay />}
-      {tests && tests.items.length > 0 && (
-        <ul className="divide-y divide-rule rounded-xl border border-rule">
-          {tests.items.map((g) => (
-            <li key={g.id} className="flex items-center gap-3 px-3 py-2">
-              <PlayButton id={g.id} url={api.generationAudioUrl(g.id)} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px]">{g.text}</p>
-                <p className="text-[11.5px] text-ink-3">
-                  {languageLabel(g.language)} · {g.model_id} · {formatDate(g.created_at)}
-                </p>
-              </div>
-              {voice.preferred_sample_generation_id === g.id ? (
-                <Badge tone="ink">
-                  <Star className="size-3" /> Preview
-                </Badge>
-              ) : (
-                <Tooltip content="Use as this voice's preview sample">
-                  <Button size="icon-sm" variant="ghost" onClick={() => setPreview(g.id)}>
-                    <Star />
-                  </Button>
-                </Tooltip>
-              )}
-              <Button size="icon-sm" variant="ghost" onClick={() => remove(g.id)} aria-label="Delete test">
-                <Trash2 />
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
@@ -404,8 +584,6 @@ export function VoiceDetail() {
   const queryClient = useQueryClient();
   const { data: voice, isLoading, error } = useVoice(voiceId);
   const [deleting, setDeleting] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["voice", voiceId] });
@@ -415,42 +593,7 @@ export function VoiceDetail() {
   if (isLoading) return <Skeleton className="h-96" />;
   if (error || !voice) return <Callout tone="red">This voice could not be loaded.</Callout>;
 
-  const primary = voice.references.find((r) => r.id === voice.primary_reference_id) ?? null;
-  const others = voice.references.filter((r) => r.id !== primary?.id);
-  const hasTranscript = !!primary?.transcript.trim();
-  const blocking = primary?.quality.flags.some((f) => f.severity === "error");
-  const tested = voice.generation_count > 0;
-
-  async function markReady() {
-    setSaving(true);
-    try {
-      await api.updateVoice(voice!.id, { status: "ready" });
-      refresh();
-      toast.success(`“${voice!.name}” is ready to use`);
-    } catch (err) {
-      toastError(err, "The voice is not ready yet");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function makePrimary(id: string) {
-    try {
-      await api.updateVoice(voice!.id, { primary_reference_id: id });
-      refresh();
-    } catch (err) {
-      toastError(err);
-    }
-  }
-
-  async function removeReference(id: string) {
-    try {
-      await api.deleteReference(voice!.id, id);
-      refresh();
-    } catch (err) {
-      toastError(err);
-    }
-  }
+  const total = voice.references.reduce((sum, r) => sum + r.duration_s, 0);
 
   return (
     <>
@@ -476,13 +619,9 @@ export function VoiceDetail() {
           <Button variant="danger-ghost" size="sm" onClick={() => setDeleting(true)}>
             <Trash2 /> Delete
           </Button>
-          {voice.status === "ready" ? (
+          {voice.status === "ready" && (
             <Button size="sm" onClick={() => navigate(`/generate?voice=${voice.id}`)}>
               <Sparkles /> Use voice
-            </Button>
-          ) : (
-            <Button size="sm" onClick={markReady} loading={saving} disabled={!primary || !hasTranscript || blocking}>
-              Save voice
             </Button>
           )}
         </div>
@@ -492,69 +631,23 @@ export function VoiceDetail() {
         <Card className="mb-5 flex flex-wrap items-center gap-x-8 gap-y-2 px-5 py-3.5">
           <span className="text-[13px] font-semibold">To finish</span>
           <ul className="flex flex-wrap gap-x-6 gap-y-1.5">
-            <Check done={!!primary && !blocking}>Add a usable reference</Check>
-            <Check done={hasTranscript}>Enter its exact transcript</Check>
-            <Check done={tested}>Generate and listen to a test</Check>
+            <Check done={total >= 10}>Add recordings (10 s or more)</Check>
+            <Check done={voice.clips.length > 0}>Create the voice</Check>
+            <Check done={!!voice.clip_id}>Pick the take you like</Check>
           </ul>
         </Card>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
-        <div className="space-y-5">
-          <Card className="p-5">
-            <SectionTitle
-              action={
-                primary && (
-                  <Button size="sm" variant="ghost" onClick={() => setAdding((v) => !v)}>
-                    {adding ? "Close" : "Add another recording"}
-                  </Button>
-                )
-              }
-            >
-              Reference recording
-            </SectionTitle>
-            {(!primary || adding) && (
-              <div className={primary ? "mb-6" : undefined}>
-                <AddReference
-                  voice={voice}
-                  onAdded={() => {
-                    setAdding(false);
-                    refresh();
-                  }}
-                />
-              </div>
-            )}
-            {primary && <ReferenceEditor voice={voice} reference={primary} onChanged={refresh} />}
-            {others.length > 0 && (
-              <div className="mt-6">
-                <p className="mb-2 text-[13px] font-medium">Other recordings</p>
-                <ul className="divide-y divide-rule rounded-xl border border-rule">
-                  {others.map((r) => (
-                    <li key={r.id} className="flex items-center gap-3 px-3 py-2">
-                      <PlayButton id={r.id} url={api.referenceAudioUrl(voice.id, r.id, "reference", r.updated_at)} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px]">{r.original_filename}</p>
-                        <p className="truncate text-[11.5px] text-ink-3">
-                          {formatDuration(r.duration_s)} · {r.transcript ? `“${r.transcript}”` : "no transcript"}
-                        </p>
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => makePrimary(r.id)}>
-                        Use this one
-                      </Button>
-                      <Button size="icon-sm" variant="ghost" onClick={() => removeReference(r.id)} aria-label="Delete recording">
-                        <Trash2 />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </Card>
-
-          <Card className="p-5">
-            <SectionTitle>Test the voice</SectionTitle>
-            <TestPanel voice={voice} onChanged={refresh} />
-          </Card>
+      <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
+        <div className="min-w-0 space-y-5">
+          <RecordingsCard voice={voice} onChanged={refresh} />
+          <CreateVoiceCard voice={voice} onChanged={refresh} />
+          {voice.status === "ready" && (
+            <Card className="p-5">
+              <SectionTitle>Try the voice</SectionTitle>
+              <TryPanel voice={voice} />
+            </Card>
+          )}
         </div>
 
         <Card className="h-fit p-5">

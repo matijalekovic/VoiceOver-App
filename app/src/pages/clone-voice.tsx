@@ -47,7 +47,7 @@ export function CloneVoice() {
     <>
       <PageHeader
         title="Voice Cloning"
-        description="Create a voice profile, then add a reference recording, its transcript and a test line."
+        description="Create a voice profile, add up to 3 minutes of recordings, then pick the best of three takes."
       />
       <div className="grid gap-6 rounded-[28px] bg-stage p-6 lg:grid-cols-[1fr_300px] lg:p-8">
         <Card className="space-y-6 p-7">
@@ -89,7 +89,7 @@ export function CloneVoice() {
 
           <div className="flex justify-end">
             <Button onClick={create} disabled={!valid} loading={busy}>
-              Continue to recording
+              Continue to recordings
             </Button>
           </div>
         </Card>
@@ -98,11 +98,11 @@ export function CloneVoice() {
           <Callout tone="neutral" className="border border-rule bg-panel shadow-card">
             <p className="mb-1 font-medium text-ink">What makes a good reference</p>
             <ul className="list-disc space-y-1 pl-4">
-              <li>10–30 seconds of one person speaking naturally</li>
+              <li>30 seconds to 3 minutes of one person speaking naturally, in one file or several</li>
               <li>A quiet room, no music, no other voices</li>
               <li>Even distance from the microphone, no clipping</li>
               <li>The same style you want to generate (calm narration, lively promo…)</li>
-              <li>An exact word-for-word transcript</li>
+              <li>No transcript needed: recordings are transcribed on this Mac</li>
             </ul>
           </Callout>
           <Callout tone="blue">

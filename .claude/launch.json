@@ -1,6 +1,13 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "app-ui", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "app", "run", "dev"], "port": 1420 }
+    { "name": "app-ui", "runtimeExecutable": "npm", "runtimeArgs": ["--prefix", "app", "run", "dev"], "port": 1420 },
+    {
+      "name": "app-ui-test",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--prefix", "app", "vite", "app", "--port", "1421"],
+      "env": { "VITE_API_URL": "http://127.0.0.1:8766", "VITE_API_TOKEN": "dev-token" },
+      "port": 1421
+    }
   ]
 }

@@ -208,7 +208,7 @@ export function Voices() {
             </Button>
           }
         >
-          A voice is cloned from 10–30 seconds of clean speech and its exact transcript.
+          A voice is cloned from up to 3 minutes of clean speech; Voice Studio picks the best clip from it.
         </EmptyState>
       )}
       <DeleteVoiceDialog voice={deleting} onClose={() => setDeleting(null)} />

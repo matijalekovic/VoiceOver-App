@@ -34,8 +34,9 @@ def dir_size(path: Path) -> int:
     return total
 
 
-def validate_model_dir(path: Path) -> list[str]:
-    """Problems that would stop the folder from loading as a Qwen3-TTS Base checkpoint."""
+def validate_model_dir(path: Path, kind: str = "tts") -> list[str]:
+    """Problems that would stop the folder from loading as a Qwen3-TTS Base checkpoint
+    (or, for kind "stt", as a Whisper checkpoint)."""
     problems: list[str] = []
     config_path = path / "config.json"
     if not config_path.exists():
@@ -44,6 +45,14 @@ def validate_model_dir(path: Path) -> list[str]:
         config = json.loads(config_path.read_text())
     except (OSError, json.JSONDecodeError):
         return ["config.json is unreadable"]
+    if kind == "stt":
+        if not list(path.glob("*.safetensors")):
+            problems.append("model weights (*.safetensors) are missing")
+        # The tokenizer and the alignment heads (for word timings) ship as separate files.
+        for name in ("tokenizer.json", "preprocessor_config.json", "generation_config.json"):
+            if not (path / name).exists():
+                problems.append(f"{name} is missing")
+        return problems
     if config.get("tts_model_type", "base") != "base":
         problems.append(
             f"this is a {config.get('tts_model_type')} checkpoint; voice cloning needs a Base checkpoint"
@@ -97,6 +106,15 @@ class ModelManager:
             raise NotFound("Model", model_id)
         return spec
 
+    def voice_spec(self, model_id: str) -> ModelSpec:
+        """The spec of a model that can clone voices (not the speech recognition one)."""
+        spec = self.spec(model_id)
+        if spec.kind != "tts":
+            raise StudioError(
+                "not_a_voice_model", f"{spec.label} transcribes speech; it cannot generate voices."
+            )
+        return spec
+
     def model_dir(self, model_id: str) -> Path:
         return self.models_dir / self.spec(model_id).id
 
@@ -120,7 +138,7 @@ class ModelManager:
             }
         if not path.exists():
             return {"state": "not_installed", "path": str(path)}
-        problems = validate_model_dir(path)
+        problems = validate_model_dir(path, spec.kind)
         marker = path / MARKER
         info = json.loads(marker.read_text()) if marker.exists() else {}
         if problems:
@@ -202,7 +220,7 @@ class ModelManager:
             if entry.get("cancelled"):
                 self._downloads.pop(model_id, None)
                 return
-            if proc.exitcode == 0 and not validate_model_dir(target):
+            if proc.exitcode == 0 and not validate_model_dir(target, spec.kind):
                 (target / MARKER).write_text(
                     json.dumps(
                         {"repo_id": spec.repo_id, "installed_at": now_iso(), "source": "download"},
@@ -212,7 +230,7 @@ class ModelManager:
                 self._downloads.pop(model_id, None)
                 log.info("downloaded %s", spec.repo_id)
             else:
-                problems = validate_model_dir(target)
+                problems = validate_model_dir(target, spec.kind)
                 entry["state"] = "failed"
                 entry["error"] = (
                     f"Download stopped (exit code {proc.exitcode}). Retry to resume where it left off."

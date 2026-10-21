@@ -50,7 +50,15 @@ scripts/download-model.sh qwen3-tts-0.6b-base-bf16
 ```
 
 or let the validation tool fetch it (`--download`), or press **Download** in the app under
-Settings → Models. All three put the files in
+Settings → Models.
+
+Creating a voice also needs the speech recognition model (~1.6 GB), which transcribes the
+recordings so clips can be cut on word boundaries. The app offers to download it the first
+time you press **Create voice**, or fetch it ahead of time:
+
+```bash
+scripts/download-model.sh whisper-large-v3-turbo
+``` All three put the files in
 `~/Library/Application Support/1PAX Voice Studio/models/<model id>/` and resume if interrupted.
 The app checks the folder is a complete **Base** checkpoint (it rejects CustomVoice and
 VoiceDesign checkpoints, which cannot clone).

@@ -1,5 +1,6 @@
 import { getConnection } from "./backend";
 import type {
+  Clip,
   Draft,
   ExportResult,
   Generation,
@@ -100,6 +101,14 @@ export const api = {
     mediaUrl(`/api/voices/${voiceId}/references/${refId}/audio?which=${which}`, version),
   testVoice: (voiceId: string, body: { text: string; language?: string; model_id?: string }) =>
     post<JobRef>(`/api/voices/${voiceId}/test`, body),
+  buildVoice: (voiceId: string, body: { model_id?: string; language?: string; text?: string }) =>
+    post<JobRef>(`/api/voices/${voiceId}/create`, body),
+  clipAudioUrl: (voiceId: string, clipId: string) => mediaUrl(`/api/voices/${voiceId}/clips/${clipId}/audio`),
+  updateClip: (voiceId: string, clipId: string, transcript: string) =>
+    patch<Clip>(`/api/voices/${voiceId}/clips/${clipId}`, { transcript }),
+  clipDemo: (voiceId: string, clipId: string, body: { model_id?: string; language?: string }) =>
+    post<JobRef>(`/api/voices/${voiceId}/clips/${clipId}/demo`, body),
+  chooseClip: (voiceId: string, clipId: string) => post<Voice>(`/api/voices/${voiceId}/clips/${clipId}/choose`),
   exportVoice: (voiceId: string) => post<ExportResult>(`/api/voices/${voiceId}/export`),
   importVoice: (file: File) => {
     const form = new FormData();

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import audio
+from .clips import Candidate
 from .db import new_id, now_iso
 from .errors import NotFound, StudioError
 from .generations import safe_filename, unique_path
@@ -30,17 +31,34 @@ ALLOWED_UPLOAD_SUFFIXES = {
     ".aif",
 }
 EXPORT_FORMAT_VERSION = 1
+# Without a chosen clip a voice clones from its whole primary recording; past this length
+# that is too slow and too memory-hungry, so the voice has to be created first.
+MAX_DIRECT_REFERENCE_S = 60.0
+
+
+def _minutes(seconds: float) -> str:
+    return f"{int(seconds // 60)}:{int(round(seconds % 60)):02d}"
 
 
 def _reference_row(row: dict[str, Any]) -> dict[str, Any]:
     quality = json.loads(row["quality_json"])
+    segments = row.get("segments_json")
     return {
         **{
-            k: v for k, v in row.items() if k not in ("quality_json", "original_path", "audio_path")
+            k: v
+            for k, v in row.items()
+            if k not in ("quality_json", "original_path", "audio_path", "segments_json")
         },
         "quality": quality["trimmed"],
         "source_quality": quality.get("source"),
+        "segments": json.loads(segments) if segments else None,
     }
+
+
+def _clip_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in row.items() if k not in ("quality_json", "audio_path")}
+    out["quality"] = json.loads(row["quality_json"])
+    return out
 
 
 def _voice_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -84,7 +102,14 @@ class VoiceService:
         refs = self.db.all(
             "SELECT * FROM reference_recordings WHERE voice_id = ? ORDER BY created_at", (voice_id,)
         )
-        return {**_voice_row(row), "references": [_reference_row(r) for r in refs]}
+        clips = self.db.all(
+            "SELECT * FROM voice_clips WHERE voice_id = ? ORDER BY score DESC", (voice_id,)
+        )
+        return {
+            **_voice_row(row),
+            "references": [_reference_row(r) for r in refs],
+            "clips": [_clip_row(c) for c in clips],
+        }
 
     def create(
         self, name: str, description: str, language: str, consent: dict[str, Any]
@@ -143,6 +168,8 @@ class VoiceService:
         return self.get(voice_id)
 
     def _check_ready(self, voice: dict[str, Any], primary_id: str | None) -> None:
+        if voice.get("clip_id"):
+            return
         primary_id = primary_id or voice["primary_reference_id"]
         primary = next((r for r in voice["references"] if r["id"] == primary_id), None)
         if primary is None:
@@ -217,6 +244,13 @@ class VoiceService:
             source_quality = audio.analyse(samples, sr)
             start, end = audio.speech_bounds(samples, sr)
             quality = self._render_reference(folder, start, end)
+            total = sum(r["duration_s"] for r in voice["references"]) + quality.duration_s
+            if total > audio.MAX_RECORDING_S + 0.5:
+                raise StudioError(
+                    "recordings_too_long",
+                    f"A voice's recordings can add up to 3 minutes. This one ({_minutes(quality.duration_s)}) "
+                    f"would bring the total to {_minutes(total)}. Trim it or remove another recording.",
+                )
         except BaseException:
             shutil.rmtree(folder, ignore_errors=True)
             raise
@@ -305,6 +339,8 @@ class VoiceService:
 
     def delete_reference(self, voice_id: str, ref_id: str) -> None:
         self.reference_row(voice_id, ref_id)
+        for clip in self.db.all("SELECT id FROM voice_clips WHERE reference_id = ?", (ref_id,)):
+            self._delete_clip(voice_id, clip["id"])
         self.db.execute("DELETE FROM reference_recordings WHERE id = ?", (ref_id,))
         shutil.rmtree(self._ref_dir(voice_id, ref_id), ignore_errors=True)
         voice = self.get(voice_id)
@@ -323,14 +359,35 @@ class VoiceService:
         return self.paths.resolve(row["audio_path"])
 
     def clone_reference(self, voice_id: str, ref_id: str | None) -> dict[str, Any]:
-        """The recording and transcript a generation clones from."""
+        """The recording and transcript a generation clones from: the chosen clip, a given
+        clip or recording, or (for voices made before clips) the primary recording."""
         voice = self.get(voice_id)
+        clip_id = ref_id if any(c["id"] == ref_id for c in voice["clips"]) else None
+        if not ref_id and voice["clip_id"]:
+            clip_id = voice["clip_id"]
+        if clip_id:
+            clip = self.clip_row(voice_id, clip_id)
+            path = self.paths.resolve(clip["audio_path"])
+            if not path.exists():
+                raise StudioError("reference_missing", "The voice's clip is missing from disk.")
+            return {
+                "voice": voice,
+                "reference_id": clip_id,
+                "audio_path": str(path),
+                "transcript": clip["transcript"],
+            }
         ref_id = ref_id or voice["primary_reference_id"]
         if not ref_id:
             raise StudioError(
                 "reference_required", f"The voice “{voice['name']}” has no reference recording."
             )
         row = self.reference_row(voice_id, ref_id)
+        if row["duration_s"] > MAX_DIRECT_REFERENCE_S:
+            raise StudioError(
+                "create_voice_first",
+                f"The recording for “{voice['name']}” is too long to clone from directly. "
+                "Use Create voice to pick a short clip from it.",
+            )
         if not row["transcript"].strip():
             raise StudioError(
                 "transcript_required", f"The reference for “{voice['name']}” has no transcript yet."
@@ -346,6 +403,117 @@ class VoiceService:
             "audio_path": str(path),
             "transcript": row["transcript"],
         }
+
+    # -- transcripts and clips ---------------------------------------------------
+    def set_segments(self, voice_id: str, ref_id: str, segments: list[dict[str, Any]]) -> None:
+        """Store Whisper's timed transcript; its text becomes the recording's transcript."""
+        self.reference_row(voice_id, ref_id)
+        text = " ".join(s["text"].strip() for s in segments).strip()
+        (self._ref_dir(voice_id, ref_id) / "transcript.txt").write_text(text, encoding="utf-8")
+        self.db.execute(
+            "UPDATE reference_recordings SET segments_json = ?, transcript = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(segments, ensure_ascii=False), text, now_iso(), ref_id),
+        )
+
+    def clip_row(self, voice_id: str, clip_id: str) -> dict[str, Any]:
+        row = self.db.one(
+            "SELECT * FROM voice_clips WHERE id = ? AND voice_id = ?", (clip_id, voice_id)
+        )
+        if not row:
+            raise NotFound("Clip", clip_id)
+        return row
+
+    def clip(self, voice_id: str, clip_id: str) -> dict[str, Any]:
+        return _clip_row(self.clip_row(voice_id, clip_id))
+
+    def clip_audio_path(self, voice_id: str, clip_id: str) -> Path:
+        return self.paths.resolve(self.clip_row(voice_id, clip_id)["audio_path"])
+
+    def _delete_clip(self, voice_id: str, clip_id: str) -> None:
+        row = self.clip_row(voice_id, clip_id)
+        if row["demo_generation_id"]:
+            demo = self.db.one(
+                "SELECT audio_path FROM generations WHERE id = ? AND kind = 'voice_test'",
+                (row["demo_generation_id"],),
+            )
+            if demo:
+                self.paths.resolve(demo["audio_path"]).unlink(missing_ok=True)
+                self.db.execute(
+                    "DELETE FROM generations WHERE id = ?", (row["demo_generation_id"],)
+                )
+        self.paths.resolve(row["audio_path"]).unlink(missing_ok=True)
+        self.db.execute("DELETE FROM voice_clips WHERE id = ?", (clip_id,))
+        self.db.execute(
+            "UPDATE voices SET clip_id = NULL, preferred_sample_generation_id = NULL, "
+            "status = 'draft', updated_at = ? "
+            "WHERE id = ? AND clip_id = ?",
+            (now_iso(), voice_id, clip_id),
+        )
+
+    def replace_candidates(
+        self, voice_id: str, candidates: list[Candidate]
+    ) -> list[dict[str, Any]]:
+        """Swap the previous round of candidates (except the chosen clip) for new ones."""
+        voice = self.get(voice_id)
+        for old in voice["clips"]:
+            if old["id"] != voice["clip_id"]:
+                self._delete_clip(voice_id, old["id"])
+        folder = self.paths.voices / voice_id / "clips"
+        folder.mkdir(parents=True, exist_ok=True)
+        created = []
+        for candidate in candidates:
+            clip_id = new_id()
+            samples, sr = audio.read_audio(
+                self._ref_dir(voice_id, candidate.reference_id) / "source.wav"
+            )
+            clip = samples[int(candidate.start_s * sr) : int(candidate.end_s * sr)]
+            target = folder / f"{clip_id}.wav"
+            audio.write_wav(target, audio.fade(audio.normalise_peak(clip, -1.0), sr, ms=10), sr)
+            self.db.execute(
+                "INSERT INTO voice_clips (id, voice_id, reference_id, start_s, end_s, transcript, audio_path, "
+                "quality_json, score, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    clip_id, voice_id, candidate.reference_id, candidate.start_s, candidate.end_s,
+                    candidate.transcript, self.paths.relative(target), json.dumps(candidate.quality.to_dict()),
+                    candidate.score, now_iso(),
+                ),
+            )  # fmt: skip
+            created.append(self.clip(voice_id, clip_id))
+        return created
+
+    def set_clip_demo(self, voice_id: str, clip_id: str, generation_id: str) -> None:
+        previous = self.clip_row(voice_id, clip_id)["demo_generation_id"]
+        self.db.execute(
+            "UPDATE voice_clips SET demo_generation_id = ? WHERE id = ?", (generation_id, clip_id)
+        )
+        if previous and previous != generation_id:
+            demo = self.db.one(
+                "SELECT audio_path FROM generations WHERE id = ? AND kind = 'voice_test'",
+                (previous,),
+            )
+            if demo:
+                self.paths.resolve(demo["audio_path"]).unlink(missing_ok=True)
+                self.db.execute("DELETE FROM generations WHERE id = ?", (previous,))
+
+    def update_clip(self, voice_id: str, clip_id: str, transcript: str) -> dict[str, Any]:
+        """Correct a clip's transcript (Whisper can mishear names); its demo must be redone."""
+        self.clip_row(voice_id, clip_id)
+        if not transcript.strip():
+            raise StudioError("transcript_required", "The clip's transcript cannot be empty.")
+        self.db.execute(
+            "UPDATE voice_clips SET transcript = ? WHERE id = ?", (transcript.strip(), clip_id)
+        )
+        return self.clip(voice_id, clip_id)
+
+    def choose_clip(self, voice_id: str, clip_id: str) -> dict[str, Any]:
+        """Save the voice: from now on it clones from this clip."""
+        clip = self.clip_row(voice_id, clip_id)
+        self.db.execute(
+            "UPDATE voices SET clip_id = ?, preferred_sample_generation_id = ?, status = 'ready', "
+            "primary_reference_id = COALESCE(primary_reference_id, ?), updated_at = ? WHERE id = ?",
+            (clip_id, clip["demo_generation_id"], clip["reference_id"], now_iso(), voice_id),
+        )
+        return self.get(voice_id)
 
     # -- export / import ----------------------------------------------------
     def export_zip(self, voice_id: str, out_dir: Path) -> Path:

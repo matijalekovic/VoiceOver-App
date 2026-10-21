@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--models",
         default=DEFAULT_MODEL_ID,
-        help=f"Comma-separated model ids: {', '.join(s.id for s in CATALOG)}",
+        help=f"Comma-separated model ids: {', '.join(s.id for s in CATALOG if s.kind == 'tts')}",
     )
     parser.add_argument("--languages", default="english,french,spanish")
     parser.add_argument(

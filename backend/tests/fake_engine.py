@@ -49,3 +49,31 @@ class FakeEngine:
 
     def release_cache(self) -> None:
         pass
+
+
+class FakeTranscriber:
+    """Pretends every 4 seconds of a recording is one spoken sentence."""
+
+    def transcribe(self, model_dir: Path, audio_path: Path, language: str | None) -> list[dict]:
+        import soundfile as sf
+
+        info = sf.info(str(audio_path))
+        duration = info.frames / info.samplerate
+        segments = []
+        start = 0.5
+        while start + 3.5 <= duration:
+            end = start + 3.5
+            words = [
+                {
+                    "start": start + 0.5 * k,
+                    "end": start + 0.5 * k + 0.4,
+                    "word": f" w{k}",
+                    "probability": 0.9,
+                }
+                for k in range(7)
+            ]
+            segments.append(
+                {"start": start, "end": end, "text": f"Sentence at {start:.1f}.", "words": words}
+            )
+            start += 4.0
+        return segments

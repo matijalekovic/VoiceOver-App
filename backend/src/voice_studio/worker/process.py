@@ -149,6 +149,14 @@ def worker_main(
                             "memory": {**memory, "rss_peak_bytes": _peak_rss_bytes()},
                         }
                     )
+            elif op == "transcribe":
+                transcriber = create_engine(msg["engine"])
+                started = time.monotonic()
+                segments = transcriber.transcribe(
+                    Path(msg["model_dir"]), Path(msg["audio_path"]), msg.get("language")
+                )
+                log.info("transcribed %s in %.1fs", msg["audio_path"], time.monotonic() - started)
+                send({"type": "ok", "segments": segments})
             elif op == "memory":
                 send(
                     {
@@ -330,6 +338,34 @@ class InferenceClient:
                 raise JobCancelled()
             self.last_memory = reply.get("memory", {})
             return reply
+
+    def transcribe(
+        self, engine: str, model_dir: Path, audio_path: Path, language: str | None
+    ) -> list[dict[str, Any]]:
+        """Run speech-to-text in the worker. The voice model, if loaded, stays loaded."""
+        with self._lock:
+            if self._proc is None or not self._proc.is_alive():
+                self._stop()
+                self._start()
+            previous = self.state
+            self.state = "busy"
+            try:
+                reply = self._request(
+                    {
+                        "op": "transcribe",
+                        "engine": engine,
+                        "model_dir": str(model_dir),
+                        "audio_path": str(audio_path),
+                        "language": language,
+                    }
+                )
+            finally:
+                if self.state == "busy":
+                    self.state = previous if self.loaded else "stopped"
+                self.last_used = time.monotonic()
+            if reply["type"] == "error":
+                raise EngineError(reply["code"], reply["message"], reply.get("details"))
+            return reply["segments"]
 
     def cancel_current(self) -> None:
         """Stop after the chunk being synthesised (keeps the model loaded)."""

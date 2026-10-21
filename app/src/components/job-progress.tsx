@@ -19,6 +19,8 @@ const STAGES: Record<string, string> = {
 
 export function stageLabel(job: Job): string {
   if (job.status === "queued" && job.queue_position) return `Queued · ${job.queue_position} ahead`;
+  // Multi-step jobs (creating a voice) name the step they are on.
+  if (job.progress.message && job.status !== "loading") return job.progress.message;
   if (job.status === "synthesizing" && job.progress.chunks) {
     return `Synthesizing ${Math.min((job.progress.chunk ?? 0) + 1, job.progress.chunks)} of ${job.progress.chunks}`;
   }
@@ -30,7 +32,7 @@ function progressValue(job: Job): number | null {
   if (job.status === "synthesizing" && job.progress.chunks) {
     return ((job.progress.chunk ?? 0) / job.progress.chunks) * 100;
   }
-  if (job.status === "processing") return 100;
+  if (job.status === "processing") return job.progress.step === "transcribing" || job.progress.step === "choosing" ? null : 100;
   return null;
 }
 

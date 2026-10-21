@@ -132,6 +132,26 @@ MIGRATIONS: list[str] = [
         updated_at TEXT NOT NULL
     );
     """,
+    # 2: recordings are transcribed with timings, and a voice clones from a clip cut from them
+    """
+    ALTER TABLE reference_recordings ADD COLUMN segments_json TEXT;
+    ALTER TABLE voices ADD COLUMN clip_id TEXT;
+
+    CREATE TABLE voice_clips (
+        id TEXT PRIMARY KEY,
+        voice_id TEXT NOT NULL REFERENCES voices(id) ON DELETE CASCADE,
+        reference_id TEXT NOT NULL REFERENCES reference_recordings(id) ON DELETE CASCADE,
+        start_s REAL NOT NULL,
+        end_s REAL NOT NULL,
+        transcript TEXT NOT NULL,
+        audio_path TEXT NOT NULL,
+        quality_json TEXT NOT NULL,
+        score REAL NOT NULL,
+        demo_generation_id TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX voice_clips_voice ON voice_clips(voice_id);
+    """,
 ]
 
 

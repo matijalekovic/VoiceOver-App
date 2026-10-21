@@ -43,8 +43,24 @@ export interface Reference {
   trim_end_s: number;
   quality: Quality;
   source_quality: Quality | null;
+  /** Whisper's timed transcript, once the recording has been transcribed. */
+  segments: { start: number; end: number; text: string }[] | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A candidate reference cut from a recording; the chosen one is what the voice clones. */
+export interface Clip {
+  id: string;
+  voice_id: string;
+  reference_id: string;
+  start_s: number;
+  end_s: number;
+  transcript: string;
+  quality: Quality;
+  score: number;
+  demo_generation_id: string | null;
+  created_at: string;
 }
 
 export interface Consent {
@@ -63,18 +79,20 @@ export interface Voice {
   status: "draft" | "ready";
   primary_reference_id: string | null;
   preferred_sample_generation_id: string | null;
+  clip_id: string | null;
   consent: Consent;
   created_at: string;
   updated_at: string;
   references: Reference[];
+  clips: Clip[];
   generation_count: number;
 }
 
 export interface Job {
   id: string;
-  kind: "tts" | "voice_test" | "segment" | "load_model";
+  kind: "tts" | "voice_test" | "segment" | "load_model" | "voice_create";
   status: JobStatus;
-  progress: { chunk?: number; chunks?: number; audio_seconds?: number; message?: string };
+  progress: { chunk?: number; chunks?: number; audio_seconds?: number; message?: string; step?: string };
   payload: Record<string, unknown>;
   result: { generation_id?: string; stats?: GenerationStats; model_id?: string } | null;
   error_code: string | null;
@@ -190,7 +208,8 @@ export interface ModelEntry {
   id: string;
   label: string;
   repo_id: string;
-  tier: "quality" | "lightweight";
+  tier: "quality" | "lightweight" | "speech recognition";
+  kind: "tts" | "stt";
   parameters: string;
   quantization: string;
   approx_download_gb: number;
