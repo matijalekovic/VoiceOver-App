@@ -9,7 +9,7 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Field, Input, Textarea } from "@/components/ui/form";
 import { Card, EmptyState, Progress, Skeleton, Tabs } from "@/components/ui/misc";
 import { api } from "@/lib/api";
-import { toastError, useSettings, useVoices } from "@/lib/hooks";
+import { toastError, usePreferredModelId, useVoices } from "@/lib/hooks";
 import type { Project } from "@/lib/types";
 import { formatDate, formatDuration, languageLabel } from "@/lib/utils";
 
@@ -17,7 +17,6 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: voices } = useVoices();
-  const { data: settings } = useSettings();
   const [name, setName] = useState("");
   const [script, setScript] = useState("");
   const [voiceId, setVoiceId] = useState<string | null>(null);
@@ -26,9 +25,10 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const [segmentation, setSegmentation] = useState<"paragraph" | "sentence">("paragraph");
   const [busy, setBusy] = useState(false);
 
+  const preferredModelId = usePreferredModelId();
   useEffect(() => {
-    if (!modelId && settings) setModelId(settings.default_model_id);
-  }, [modelId, settings]);
+    if (!modelId && preferredModelId) setModelId(preferredModelId);
+  }, [modelId, preferredModelId]);
 
   async function create() {
     setBusy(true);

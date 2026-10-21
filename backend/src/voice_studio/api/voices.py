@@ -20,6 +20,16 @@ def _resolve_language(language: str | None, fallback: str) -> str:
     return (language or fallback).lower()
 
 
+def _require_installed(studio: Studio, model_id: str) -> None:
+    """Fail at submit time, not after the job has transcribed and cut clips."""
+    spec = studio.models.voice_spec(model_id)
+    if not studio.models.is_installed(model_id):
+        raise StudioError(
+            "model_not_installed",
+            f"{spec.label} is not installed. Pick an installed model or download it in Settings → Models.",
+        )
+
+
 @router.get("", response_model=list[schemas.Voice])
 def list_voices(studio: Studio = Depends(get_studio)):
     return VoiceService(studio).list()
@@ -112,7 +122,7 @@ def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(
     voice = service.get(voice_id)
     clone = service.clone_reference(voice_id, body.reference_id)
     model_id = body.model_id or studio.pref("default_model_id")
-    studio.models.voice_spec(model_id)
+    _require_installed(studio, model_id)
     job = studio.jobs.submit(
         "voice_test",
         {
@@ -141,7 +151,7 @@ def build_voice(voice_id: str, body: schemas.VoiceBuild, studio: Studio = Depend
     if not voice["references"]:
         raise StudioError("reference_required", "Add at least one recording first.")
     model_id = body.model_id or studio.pref("default_model_id")
-    studio.models.voice_spec(model_id)
+    _require_installed(studio, model_id)
     job = studio.jobs.submit(
         "voice_create",
         {
@@ -179,7 +189,7 @@ def clip_demo(
     voice = service.get(voice_id)
     service.clip_row(voice_id, clip_id)
     model_id = body.model_id or studio.pref("default_model_id")
-    studio.models.voice_spec(model_id)
+    _require_installed(studio, model_id)
     language = _resolve_language(body.language, voice["language"])
     job = studio.jobs.submit(
         "voice_test",

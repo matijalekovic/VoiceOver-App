@@ -9,7 +9,7 @@ import { PlayButton } from "@/components/mini-player";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, SectionTitle } from "@/components/ui/misc";
 import { api } from "@/lib/api";
-import { toastError, useJob, useModels, useSettings, useStatus, useVoices } from "@/lib/hooks";
+import { toastError, useJob, useModels, usePreferredModelId, useStatus, useVoices } from "@/lib/hooks";
 import { formatBytes, formatDate, formatDuration, languageLabel } from "@/lib/utils";
 
 function greeting() {
@@ -38,7 +38,6 @@ function EnginePanel() {
   const queryClient = useQueryClient();
   const { data: status } = useStatus();
   const { data: models } = useModels();
-  const { data: settings } = useSettings();
   const [loadJob, setLoadJob] = useState<string | null>(null);
   const job = useJob(loadJob, (j) => {
     if (j.status === "completed") setLoadJob(null);
@@ -46,7 +45,8 @@ function EnginePanel() {
   });
   const engine = status?.engine;
   const loaded = models?.find((m) => m.id === engine?.loaded_model_id);
-  const preferred = models?.find((m) => m.id === settings?.default_model_id);
+  const preferredId = usePreferredModelId();
+  const preferred = models?.find((m) => m.id === preferredId);
   const memory = status?.memory;
   const pressure = memory?.pressure_level;
 

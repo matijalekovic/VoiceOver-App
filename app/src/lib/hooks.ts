@@ -62,6 +62,18 @@ export function useSettings() {
   return useQuery({ queryKey: ["settings"], queryFn: api.settings });
 }
 
+/**
+ * The voice model a picker should start on: the default if it is installed, otherwise the
+ * first installed one (so nothing starts on a model that would fail). Null while loading.
+ */
+export function usePreferredModelId(): string | null {
+  const { data: settings } = useSettings();
+  const { data: models } = useModels();
+  if (!settings || !models) return null;
+  const installed = models.filter((m) => m.kind === "tts" && m.status.state === "installed");
+  return (installed.find((m) => m.id === settings.default_model_id) ?? installed[0])?.id ?? settings.default_model_id;
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
