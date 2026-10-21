@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="orb" cx="38%" cy="32%" r="80%">
+      <stop offset="0" stop-color="#f1f9f5"/>
+      <stop offset="0.35" stop-color="#a9d0bd"/>
+      <stop offset="0.7" stop-color="#9db3e3"/>
+      <stop offset="1" stop-color="#6fae8c"/>
+    </radialGradient>
+  </defs>
+  <!-- macOS icon grid: 824 px tile centred on a 1024 canvas -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#0a0a0a"/>
+  <circle cx="512" cy="512" r="250" fill="url(#orb)" opacity="0.95"/>
+  <g fill="#0a0a0a">
+    <rect x="371" y="452" width="34" height="120" rx="17"/>
+    <rect x="431" y="392" width="34" height="240" rx="17"/>
+    <rect x="491" y="342" width="34" height="340" rx="17"/>
+    <rect x="551" y="412" width="34" height="200" rx="17"/>
+    <rect x="611" y="472" width="34" height="80" rx="17"/>
+  </g>
+  <rect x="690" y="690" width="70" height="70" rx="12" fill="#ffffff"/>
+</svg>
