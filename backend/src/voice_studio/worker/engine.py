@@ -36,6 +36,8 @@ class ChunkRequest:
     language: str
     reference: CloneReference
     seed: int | None = None
+    temperature: float | None = None  # sampling; None keeps the engine's default
+    top_p: float | None = None
 
 
 class TTSEngine(Protocol):

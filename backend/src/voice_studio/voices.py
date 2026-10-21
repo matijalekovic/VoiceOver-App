@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import audio
+from . import audio, style
 from .clips import Candidate
 from .db import new_id, now_iso
 from .errors import NotFound, StudioError
@@ -58,11 +58,13 @@ def _reference_row(row: dict[str, Any]) -> dict[str, Any]:
 def _clip_row(row: dict[str, Any]) -> dict[str, Any]:
     out = {k: v for k, v in row.items() if k not in ("quality_json", "audio_path")}
     out["quality"] = json.loads(row["quality_json"])
+    out["kept"] = bool(row["kept"])
     return out
 
 
 def _voice_row(row: dict[str, Any]) -> dict[str, Any]:
-    out = {k: v for k, v in row.items() if not k.startswith("consent_")}
+    out = {k: v for k, v in row.items() if not k.startswith("consent_") and k != "style_json"}
+    out["style"] = style.resolve(json.loads(row.get("style_json") or "{}"))
     out["consent"] = {
         "confirmed": bool(row["consent_confirmed"]),
         "speaker": row["consent_speaker"],
@@ -89,7 +91,17 @@ class VoiceService:
         by_voice: dict[str, list[dict[str, Any]]] = {}
         for ref in refs:
             by_voice.setdefault(ref["voice_id"], []).append(_reference_row(ref))
-        return [{**_voice_row(r), "references": by_voice.get(r["id"], [])} for r in rows]
+        clips: dict[str, list[dict[str, Any]]] = {}
+        for clip in self.db.all("SELECT * FROM voice_clips ORDER BY score DESC"):
+            clips.setdefault(clip["voice_id"], []).append(_clip_row(clip))
+        return [
+            {
+                **_voice_row(r),
+                "references": by_voice.get(r["id"], []),
+                "clips": clips.get(r["id"], []),
+            }
+            for r in rows
+        ]
 
     def get(self, voice_id: str) -> dict[str, Any]:
         row = self.db.one(
@@ -149,6 +161,8 @@ class VoiceService:
             if not sample:
                 raise NotFound("Generation", patch["preferred_sample_generation_id"])
             fields["preferred_sample_generation_id"] = patch["preferred_sample_generation_id"]
+        if patch.get("style") is not None:
+            fields["style_json"] = json.dumps(style.resolve(voice["style"], patch["style"]))
         if patch.get("consent"):
             consent = patch["consent"]
             fields.update(
@@ -453,10 +467,11 @@ class VoiceService:
     def replace_candidates(
         self, voice_id: str, candidates: list[Candidate]
     ) -> list[dict[str, Any]]:
-        """Swap the previous round of candidates (except the chosen clip) for new ones."""
+        """Swap the previous round of candidates for new ones. The chosen clip and takes
+        kept as named styles stay."""
         voice = self.get(voice_id)
         for old in voice["clips"]:
-            if old["id"] != voice["clip_id"]:
+            if old["id"] != voice["clip_id"] and not old["kept"]:
                 self._delete_clip(voice_id, old["id"])
         folder = self.paths.voices / voice_id / "clips"
         folder.mkdir(parents=True, exist_ok=True)
@@ -495,14 +510,24 @@ class VoiceService:
                 self.paths.resolve(demo["audio_path"]).unlink(missing_ok=True)
                 self.db.execute("DELETE FROM generations WHERE id = ?", (previous,))
 
-    def update_clip(self, voice_id: str, clip_id: str, transcript: str) -> dict[str, Any]:
-        """Correct a clip's transcript (Whisper can mishear names); its demo must be redone."""
+    def update_clip(self, voice_id: str, clip_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """Correct a clip's transcript (Whisper can mishear names; the demo must then be
+        redone), or keep it as a named style."""
         self.clip_row(voice_id, clip_id)
-        if not transcript.strip():
-            raise StudioError("transcript_required", "The clip's transcript cannot be empty.")
-        self.db.execute(
-            "UPDATE voice_clips SET transcript = ? WHERE id = ?", (transcript.strip(), clip_id)
-        )
+        fields: dict[str, Any] = {}
+        if patch.get("transcript") is not None:
+            if not patch["transcript"].strip():
+                raise StudioError("transcript_required", "The clip's transcript cannot be empty.")
+            fields["transcript"] = patch["transcript"].strip()
+        if patch.get("name") is not None:
+            fields["name"] = patch["name"].strip()
+        if patch.get("kept") is not None:
+            fields["kept"] = int(patch["kept"])
+        if fields:
+            assignments = ", ".join(f"{k} = ?" for k in fields)
+            self.db.execute(
+                f"UPDATE voice_clips SET {assignments} WHERE id = ?", (*fields.values(), clip_id)
+            )
         return self.clip(voice_id, clip_id)
 
     def choose_clip(self, voice_id: str, clip_id: str) -> dict[str, Any]:

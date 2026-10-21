@@ -118,6 +118,8 @@ def worker_main(
                             language=msg["language"],
                             reference=reference,
                             seed=None if seed is None else seed + index,
+                            temperature=msg.get("temperature"),
+                            top_p=msg.get("top_p"),
                         )
                     )
                     path = out_dir / f"chunk-{index:04d}.wav"

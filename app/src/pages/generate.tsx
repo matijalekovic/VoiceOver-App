@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Plus, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { ExportMenu } from "@/components/export-menu";
@@ -8,6 +8,7 @@ import { JobProgress } from "@/components/job-progress";
 import { PageHeader } from "@/components/layout";
 import { PlayButton } from "@/components/mini-player";
 import { LanguagePicker, ModelPicker, VoicePicker } from "@/components/pickers";
+import { type Delivery, deliveryFor, VoiceControls } from "@/components/voice-controls";
 import { Button } from "@/components/ui/button";
 import { Field, Textarea } from "@/components/ui/form";
 import {
@@ -44,6 +45,7 @@ export function Generate() {
   const [result, setResult] = useState<Generation | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [delivery, setDelivery] = useState<Delivery>(deliveryFor(null));
 
   const { data: drafts } = useQuery({ queryKey: ["drafts"], queryFn: api.drafts });
   const { data: recent } = useQuery({
@@ -60,6 +62,14 @@ export function Generate() {
   useEffect(() => {
     if (voice && !language) setLanguage(voice.language);
   }, [voice, language]);
+  // Each voice starts from its own saved delivery; refetches of the same voice keep edits.
+  const deliveryVoiceId = useRef<string | null>(null);
+  useEffect(() => {
+    if (voice && deliveryVoiceId.current !== voice.id) {
+      deliveryVoiceId.current = voice.id;
+      setDelivery(deliveryFor(voice));
+    }
+  }, [voice]);
   const preferredModelId = usePreferredModelId();
   useEffect(() => {
     if (!modelId && preferredModelId) setModelId(preferredModelId);
@@ -78,7 +88,14 @@ export function Generate() {
     setSubmitting(true);
     setResult(null);
     try {
-      const ref = await api.generate({ text, voice_id: voiceId, language, model_id: modelId ?? undefined });
+      const ref = await api.generate({
+        text,
+        voice_id: voiceId,
+        language,
+        model_id: modelId ?? undefined,
+        clip_id: delivery.clipId ?? undefined,
+        style: delivery.style,
+      });
       setJobId(ref.job_id);
     } catch (err) {
       toastError(err, "Could not start generation");
@@ -240,6 +257,11 @@ export function Generate() {
             >
               <ModelPicker id="model" value={modelId} onChange={setModelId} />
             </Field>
+            {voice && (
+              <div className="border-t border-rule pt-4">
+                <VoiceControls voice={voice} value={delivery} onChange={setDelivery} />
+              </div>
+            )}
             <Button
               size="lg"
               className="w-full"

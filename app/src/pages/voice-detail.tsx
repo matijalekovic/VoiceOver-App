@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Bookmark,
   CheckCircle2,
   Circle,
   Download,
@@ -23,6 +24,7 @@ import { JobProgress } from "@/components/job-progress";
 import { PlayButton } from "@/components/mini-player";
 import { LanguagePicker, ModelPicker } from "@/components/pickers";
 import { Recorder } from "@/components/recorder";
+import { type Delivery, deliveryFor, VoiceControls } from "@/components/voice-controls";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/form";
 import { Badge, Callout, Card, Progress, SectionTitle, Skeleton, Tabs } from "@/components/ui/misc";
@@ -313,6 +315,8 @@ function TakeCard({
   const [transcript, setTranscript] = useState(clip.transcript);
   const [jobId, setJobId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [styleName, setStyleName] = useState(clip.name);
   const job = useJob(jobId, () => onChanged());
   const redoing = !!job && !["completed", "failed", "cancelled"].includes(job.status);
   const chosen = voice.clip_id === clip.id;
@@ -321,11 +325,22 @@ function TakeCard({
 
   async function redo() {
     try {
-      if (transcript.trim() !== clip.transcript) await api.updateClip(voice.id, clip.id, transcript.trim());
+      if (transcript.trim() !== clip.transcript) await api.updateClip(voice.id, clip.id, { transcript: transcript.trim() });
       setEditing(false);
       setJobId((await api.clipDemo(voice.id, clip.id, { model_id: modelId ?? undefined, language })).job_id);
     } catch (err) {
       toastError(err, "Could not redo the demo");
+    }
+  }
+
+  async function keepAsStyle(kept: boolean) {
+    try {
+      await api.updateClip(voice.id, clip.id, kept ? { kept, name: styleName.trim() } : { kept });
+      setNaming(false);
+      onChanged();
+      if (kept) toast.success(`Kept “${styleName.trim()}” — pick it under Style in Text to Speech`);
+    } catch (err) {
+      toastError(err, "Could not keep the style");
     }
   }
 
@@ -351,7 +366,10 @@ function TakeCard({
     >
       <div className="flex items-center justify-between gap-2">
         <p className="font-medium">Take {index + 1}</p>
-        {chosen ? <Badge tone="ink">In use</Badge> : index === 0 ? <Badge>Best match</Badge> : null}
+        <span className="flex gap-1.5">
+          {clip.kept && <Badge tone="blue">Style · {clip.name || "Kept"}</Badge>}
+          {chosen ? <Badge tone="ink">In use</Badge> : index === 0 ? <Badge>Best match</Badge> : null}
+        </span>
       </div>
       {redoing && job ? (
         <JobProgress job={job} />
@@ -394,9 +412,37 @@ function TakeCard({
             <Button size="sm" variant="ghost" onClick={() => setEditing(true)} disabled={redoing}>
               <Pencil /> Fix words
             </Button>
+            {!chosen &&
+              (clip.kept ? (
+                <Button size="sm" variant="ghost" onClick={() => keepAsStyle(false)}>
+                  Remove style
+                </Button>
+              ) : (
+                <Button size="sm" variant="ghost" onClick={() => setNaming(true)} disabled={!clip.demo_generation_id}>
+                  <Bookmark /> Keep as style
+                </Button>
+              ))}
           </>
         )}
       </div>
+      {naming && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={styleName}
+            onChange={(e) => setStyleName(e.target.value.slice(0, 60))}
+            placeholder="Name it, e.g. Calm or Energetic"
+            className="h-9 max-w-xs"
+            autoFocus
+            onKeyDown={(e) => e.key === "Enter" && styleName.trim() && void keepAsStyle(true)}
+          />
+          <Button size="sm" onClick={() => keepAsStyle(true)} disabled={!styleName.trim()}>
+            Keep
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setNaming(false)}>
+            Cancel
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -479,6 +525,7 @@ function TryPanel({ voice }: { voice: Voice }) {
   const [modelId, setModelId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [latest, setLatest] = useState<string | null>(null);
+  const [delivery, setDelivery] = useState<Delivery>(() => deliveryFor(voice));
   const preferredModelId = usePreferredModelId();
   useEffect(() => {
     if (!modelId && preferredModelId) setModelId(preferredModelId);
@@ -491,7 +538,17 @@ function TryPanel({ voice }: { voice: Voice }) {
   async function run() {
     try {
       setLatest(null);
-      setJobId((await api.testVoice(voice.id, { text, language, model_id: modelId ?? undefined })).job_id);
+      setJobId(
+        (
+          await api.testVoice(voice.id, {
+            text,
+            language,
+            model_id: modelId ?? undefined,
+            reference_id: delivery.clipId ?? undefined,
+            style: delivery.style,
+          })
+        ).job_id,
+      );
     } catch (err) {
       toastError(err, "Could not start the test");
     }
@@ -500,6 +557,7 @@ function TryPanel({ voice }: { voice: Voice }) {
   return (
     <div className="space-y-4">
       <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1000))} className="min-h-20" />
+      <VoiceControls voice={voice} value={delivery} onChange={setDelivery} className="max-w-md" />
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Language" className="w-40">
           <LanguagePicker value={language} onChange={setLanguage} size="sm" />
