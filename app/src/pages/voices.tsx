@@ -179,7 +179,7 @@ export function Voices() {
               <Upload /> Import
             </Button>
             <Button asChild size="sm">
-              <Link to="/clone">
+              <Link to="/voices/new">
                 <Plus /> Clone voice
               </Link>
             </Button>
@@ -204,7 +204,7 @@ export function Voices() {
           title="No voices yet"
           action={
             <Button asChild>
-              <Link to="/clone">Clone your first voice</Link>
+              <Link to="/voices/new">Clone your first voice</Link>
             </Button>
           }
         >

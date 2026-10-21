@@ -46,7 +46,7 @@ export function CloneVoice() {
   return (
     <>
       <PageHeader
-        title="Voice Cloning"
+        title="New voice"
         description="Create a voice profile, add up to 3 minutes of recordings, then pick the best of three takes."
       />
       <div className="grid grid-cols-1 gap-6 rounded-[28px] bg-stage p-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:p-8">
