@@ -189,7 +189,7 @@ export function Generate() {
         </Callout>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="space-y-4">
           <Card className="p-0">
             <Textarea

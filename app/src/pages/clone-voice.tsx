@@ -49,7 +49,7 @@ export function CloneVoice() {
         title="Voice Cloning"
         description="Create a voice profile, add up to 3 minutes of recordings, then pick the best of three takes."
       />
-      <div className="grid gap-6 rounded-[28px] bg-stage p-6 lg:grid-cols-[1fr_300px] lg:p-8">
+      <div className="grid grid-cols-1 gap-6 rounded-[28px] bg-stage p-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:p-8">
         <Card className="space-y-6 p-7">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Voice name" htmlFor="name">
