@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import multiprocessing as mp
+import os
 import shutil
 import threading
 import time
@@ -58,8 +59,12 @@ def validate_model_dir(path: Path) -> list[str]:
 
 
 def _download_main(
-    repo_id: str, target: str, log_file: str
+    repo_id: str, target: str, log_file: str, hf_home: str
 ) -> None:  # pragma: no cover - child process
+    # Keep Hugging Face's own files inside the app's folder, and skip the Xet chunk cache,
+    # which would otherwise keep a second multi-GB copy of the model in ~/.cache.
+    os.environ["HF_HOME"] = hf_home
+    os.environ["HF_XET_CHUNK_CACHE_SIZE_BYTES"] = "0"
     logging.basicConfig(
         filename=log_file,
         level=logging.INFO,
@@ -71,8 +76,15 @@ def _download_main(
 
 
 class ModelManager:
-    def __init__(self, models_dir: Path, log_file: Path, catalog: list[ModelSpec] | None = None):
+    def __init__(
+        self,
+        models_dir: Path,
+        log_file: Path,
+        hf_home: Path,
+        catalog: list[ModelSpec] | None = None,
+    ):
         self.models_dir = models_dir
+        self.hf_home = hf_home
         self.log_file = log_file
         self.catalog = catalog if catalog is not None else CATALOG
         self._ctx = mp.get_context("spawn")
@@ -148,7 +160,7 @@ class ModelManager:
             )
         proc = self._ctx.Process(
             target=_download_main,
-            args=(spec.repo_id, str(target), str(self.log_file)),
+            args=(spec.repo_id, str(target), str(self.log_file), str(self.hf_home)),
             name=f"voice-studio-download-{spec.id}",
             daemon=True,
         )

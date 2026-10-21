@@ -50,7 +50,12 @@ class Studio:
         self.paths.ensure()
         self.db = Database(self.paths.database)
         self.db.migrate()
-        self.models = ModelManager(self.paths.models, self.paths.logs / "downloads.log", catalog)
+        self.models = ModelManager(
+            self.paths.models,
+            self.paths.logs / "downloads.log",
+            hf_home=self.paths.cache / "huggingface",
+            catalog=catalog,
+        )
         self.inference = InferenceClient(self.paths.logs / "inference.log")
         self.jobs = JobRunner(self)
 
