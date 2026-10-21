@@ -396,3 +396,18 @@ def test_whisper_cannot_be_used_as_a_voice_model(client):
 
     res = client.post("/api/models/load", json={"model_id": FAKE_STT})
     assert res.json()["error"]["code"] == "not_a_voice_model"
+
+
+def test_voice_jobs_refuse_a_model_that_is_not_installed(client, tmp_path, data_dir):
+    import shutil
+
+    voice = make_voice(client, tmp_path)
+    shutil.rmtree(data_dir / "models" / FAKE_MODEL)
+    for path, body in (
+        (f"/api/voices/{voice['id']}/create", {}),
+        (f"/api/voices/{voice['id']}/test", {"text": "Hi"}),
+    ):
+        res = client.post(path, json=body)
+        assert res.status_code == 400, res.text
+        assert res.json()["error"]["code"] == "model_not_installed"
+    assert client.get("/api/jobs").json() == []  # nothing was queued

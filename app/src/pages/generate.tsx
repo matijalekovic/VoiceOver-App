@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/misc";
 import { Waveform } from "@/components/waveform";
 import { api } from "@/lib/api";
-import { toastError, useJob, useModels, useSettings, useVoices } from "@/lib/hooks";
+import { toastError, useJob, useModels, usePreferredModelId, useVoices } from "@/lib/hooks";
 import type { Draft, Generation } from "@/lib/types";
 import { formatDate, formatDuration, languageLabel } from "@/lib/utils";
 
@@ -35,7 +35,6 @@ export function Generate() {
   const location = useLocation();
   const reuse = (location.state as { text?: string; voice_id?: string; language?: string } | null) ?? null;
   const { data: voices } = useVoices();
-  const { data: settings } = useSettings();
   const { data: models } = useModels();
   const [text, setText] = useState(reuse?.text ?? "");
   const [voiceId, setVoiceId] = useState<string | null>(reuse?.voice_id ?? params.get("voice"));
@@ -61,9 +60,10 @@ export function Generate() {
   useEffect(() => {
     if (voice && !language) setLanguage(voice.language);
   }, [voice, language]);
+  const preferredModelId = usePreferredModelId();
   useEffect(() => {
-    if (!modelId && settings) setModelId(settings.default_model_id);
-  }, [modelId, settings]);
+    if (!modelId && preferredModelId) setModelId(preferredModelId);
+  }, [modelId, preferredModelId]);
 
   const job = useJob(jobId, async (finished) => {
     if (finished.status === "completed" && finished.generation_id) {

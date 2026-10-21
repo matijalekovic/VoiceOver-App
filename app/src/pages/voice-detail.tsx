@@ -28,7 +28,7 @@ import { Field, Input, Textarea } from "@/components/ui/form";
 import { Badge, Callout, Card, Progress, SectionTitle, Skeleton, Tabs } from "@/components/ui/misc";
 import { Waveform } from "@/components/waveform";
 import { api } from "@/lib/api";
-import { toastError, useJob, useModels, useSettings } from "@/lib/hooks";
+import { toastError, useJob, useModels, usePreferredModelId } from "@/lib/hooks";
 import type { Clip, Reference, Voice } from "@/lib/types";
 import { cn, formatBytes, formatDate, formatDuration, languageLabel, SAMPLE_LINES } from "@/lib/utils";
 import { DeleteVoiceDialog } from "./voices";
@@ -402,21 +402,23 @@ function TakeCard({
 }
 
 function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => void }) {
-  const { data: settings } = useSettings();
   const { data: models } = useModels();
   const [language, setLanguage] = useState(voice.language);
   const [modelId, setModelId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useJob(jobId, () => onChanged());
+  const preferredModelId = usePreferredModelId();
   useEffect(() => {
-    if (!modelId && settings) setModelId(settings.default_model_id);
-  }, [modelId, settings]);
+    if (!modelId && preferredModelId) setModelId(preferredModelId);
+  }, [modelId, preferredModelId]);
   const running = !!job && !["completed", "failed", "cancelled"].includes(job.status);
   const total = voice.references.reduce((sum, r) => sum + r.duration_s, 0);
   const sttReady = models?.find((m) => m.kind === "stt")?.status.state === "installed";
   const needsTranscription = voice.references.some((r) => !r.segments);
   const usable = voice.references.some((r) => !r.quality.flags.some((f) => f.severity === "error"));
-  const canCreate = usable && total >= 3 && !running && (sttReady || !needsTranscription);
+  const chosenModel = models?.find((m) => m.id === modelId);
+  const modelReady = chosenModel?.status.state === "installed";
+  const canCreate = usable && total >= 3 && !running && modelReady && (sttReady || !needsTranscription);
 
   async function create() {
     try {
@@ -446,6 +448,11 @@ function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => 
         </Button>
       </div>
       {!voice.references.length && <p className="mt-3 text-xs text-ink-3">Add a recording first.</p>}
+      {chosenModel && !modelReady && (
+        <p className="mt-3 text-xs text-amber">
+          {chosenModel.label} is not installed. Pick an installed model, or download it in Settings → Models.
+        </p>
+      )}
       {job && <JobProgress job={job} onRetry={(j) => setJobId(j.id)} className="mt-4" />}
       {voice.clips.length > 0 && !running && (
         <div className="mt-5 grid gap-3">
@@ -467,15 +474,15 @@ function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => 
 }
 
 function TryPanel({ voice }: { voice: Voice }) {
-  const { data: settings } = useSettings();
   const [text, setText] = useState(SAMPLE_LINES[voice.language] ?? SAMPLE_LINES.english);
   const [language, setLanguage] = useState(voice.language);
   const [modelId, setModelId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [latest, setLatest] = useState<string | null>(null);
+  const preferredModelId = usePreferredModelId();
   useEffect(() => {
-    if (!modelId && settings) setModelId(settings.default_model_id);
-  }, [modelId, settings]);
+    if (!modelId && preferredModelId) setModelId(preferredModelId);
+  }, [modelId, preferredModelId]);
   const job = useJob(jobId, (j) => {
     if (j.status === "completed" && j.generation_id) setLatest(j.generation_id);
   });
