@@ -241,8 +241,8 @@ def test_voice_export_import_and_delete(client, tmp_path):
     voice = make_voice(client, tmp_path)
     archive = client.post(f"/api/voices/{voice['id']}/export")
     assert archive.status_code == 200
-    zip_path = tmp_path / "voice.zip"
-    zip_path.write_bytes(archive.content)
+    zip_path = Path(archive.json()["paths"][0])
+    assert zip_path.name == "Ana.voice.zip"
     with open(zip_path, "rb") as fh:
         imported = client.post(
             "/api/voices/import", files={"file": ("voice.zip", fh, "application/zip")}

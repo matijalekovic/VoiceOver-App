@@ -4,10 +4,10 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
-from starlette.background import BackgroundTask
 
 from .. import schemas
 from ..errors import StudioError
+from ..generations import GenerationService
 from ..studio import Studio
 from ..voices import VoiceService
 from .deps import discard, get_studio, save_upload
@@ -126,12 +126,8 @@ def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(
     return {"job_id": job["id"], "status": job["status"]}
 
 
-@router.post("/{voice_id}/export")
+@router.post("/{voice_id}/export", response_model=schemas.ExportResult)
 def export_voice(voice_id: str, studio: Studio = Depends(get_studio)):
-    path = VoiceService(studio).export_zip(voice_id)
-    return FileResponse(
-        path,
-        media_type="application/zip",
-        filename=path.name,
-        background=BackgroundTask(discard, path),
-    )
+    folder = GenerationService(studio).output_dir() / "Voices"
+    path = VoiceService(studio).export_zip(voice_id, folder)
+    return {"paths": [str(path)], "folder": str(folder)}

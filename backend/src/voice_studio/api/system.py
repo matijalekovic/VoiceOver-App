@@ -213,7 +213,10 @@ def logs(
 def reveal(body: schemas.RevealRequest, studio: Studio = Depends(get_studio)):
     """Show a file in Finder. Limited to the data folder and the export folder."""
     target = Path(body.path).expanduser().resolve()
-    roots = [studio.paths.root.resolve(), Path(studio.pref("output_dir")).expanduser().resolve()]
+    output_dir = Path(studio.pref("output_dir")).expanduser().resolve()
+    roots = [studio.paths.root.resolve(), output_dir]
+    if target == output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)  # not created until the first export
     if not any(target == root or root in target.parents for root in roots):
         raise StudioError(
             "forbidden_path", "Only Voice Studio's own folders can be revealed.", status_code=403

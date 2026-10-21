@@ -264,11 +264,17 @@ class InferenceClient:
                 self._stop()
                 if forced:
                     raise JobCancelled()
+                # A negative exit code means a signal; SIGKILL (-9) is how macOS ends a
+                # process under memory pressure.
+                hint = (
+                    "macOS most likely stopped it for using too much memory: close other apps, "
+                    "use the lightweight model, or generate shorter text."
+                    if exit_code is not None and exit_code < 0
+                    else "See Settings → Storage & logs → Engine for details."
+                )
                 raise EngineError(
                     "engine_crashed",
-                    "The inference process stopped unexpectedly"
-                    f" (exit code {exit_code}). This usually means the Mac ran out of memory: "
-                    "close other apps, use the lightweight model, or generate shorter text.",
+                    f"The inference process stopped unexpectedly (exit code {exit_code}). {hint}",
                 )
 
     # -- public API --------------------------------------------------------

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -12,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from . import audio
 from .db import new_id, now_iso
 from .errors import NotFound, StudioError
+from .generations import safe_filename, unique_path
 
 if TYPE_CHECKING:
     from .studio import Studio
@@ -348,12 +348,11 @@ class VoiceService:
         }
 
     # -- export / import ----------------------------------------------------
-    def export_zip(self, voice_id: str) -> Path:
+    def export_zip(self, voice_id: str, out_dir: Path) -> Path:
+        """A portable backup of the profile: consent record, recordings and transcripts."""
         voice = self.get(voice_id)
-        out_dir = self.paths.cache / "exports"
         out_dir.mkdir(parents=True, exist_ok=True)
-        safe = re.sub(r"[^\w\- ]+", "", voice["name"]).strip() or "voice"
-        target = out_dir / f"{safe}.voice.zip"
+        target = unique_path(out_dir, safe_filename(voice["name"]) or "voice", ".voice.zip")
         manifest = {"format": "1pax-voice", "version": EXPORT_FORMAT_VERSION, "voice": voice}
         with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("voice.json", json.dumps(manifest, indent=2, ensure_ascii=False))
