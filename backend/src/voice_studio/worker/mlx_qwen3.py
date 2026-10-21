@@ -84,6 +84,11 @@ class MlxQwen3TTSEngine:
                 ref_text=request.reference.transcript,
                 lang_code=request.language,
                 stream=False,
+                **{
+                    k: v
+                    for k, v in (("temperature", request.temperature), ("top_p", request.top_p))
+                    if v is not None
+                },
             )
         )
         if not results:

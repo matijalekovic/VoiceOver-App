@@ -152,6 +152,12 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX voice_clips_voice ON voice_clips(voice_id);
     """,
+    # 3: per-voice delivery defaults, and takes kept as named styles
+    """
+    ALTER TABLE voices ADD COLUMN style_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE voice_clips ADD COLUMN name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE voice_clips ADD COLUMN kept INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

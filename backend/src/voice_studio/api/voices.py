@@ -131,6 +131,7 @@ def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(
             "reference_id": clone["reference_id"],
             "language": _resolve_language(body.language, voice["language"]),
             "model_id": model_id,
+            "style": body.style.model_dump() if body.style else None,
         },
         voice_id=voice_id,
     )
@@ -177,7 +178,7 @@ def clip_audio(voice_id: str, clip_id: str, studio: Studio = Depends(get_studio)
 def update_clip(
     voice_id: str, clip_id: str, body: schemas.ClipUpdate, studio: Studio = Depends(get_studio)
 ):
-    return VoiceService(studio).update_clip(voice_id, clip_id, body.transcript)
+    return VoiceService(studio).update_clip(voice_id, clip_id, body.model_dump(exclude_unset=True))
 
 
 @router.post("/{voice_id}/clips/{clip_id}/demo", response_model=schemas.JobRef, status_code=202)

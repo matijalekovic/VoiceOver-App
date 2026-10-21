@@ -17,6 +17,14 @@ class Model(BaseModel):
 
 
 # -- voices ---------------------------------------------------------------
+class Style(Model):
+    """Delivery controls; any left out fall back to the voice's defaults."""
+
+    expressiveness: float | None = Field(default=None, ge=0, le=1)
+    speed: float | None = Field(default=None, ge=0.8, le=1.25)
+    pitch: float | None = Field(default=None, ge=-2, le=2, description="Semitones.")
+
+
 class Consent(Model):
     confirmed: bool = Field(
         description="The speaker authorised cloning their voice for the stated uses."
@@ -50,6 +58,7 @@ class VoiceUpdate(Model):
     primary_reference_id: str | None = None
     preferred_sample_generation_id: str | None = None
     consent: Consent | None = None
+    style: Style | None = None
 
 
 class QualityFlag(Model):
@@ -97,11 +106,15 @@ class Clip(Model):
     quality: Quality
     score: float
     demo_generation_id: str | None
+    name: str = ""
+    kept: bool = False  # kept as a named style: survives "Create new takes"
     created_at: str
 
 
 class ClipUpdate(Model):
-    transcript: str = Field(min_length=1, max_length=2000)
+    transcript: str | None = Field(default=None, min_length=1, max_length=2000)
+    name: str | None = Field(default=None, max_length=60)
+    kept: bool | None = None
 
 
 class VoiceBuild(Model):
@@ -127,6 +140,7 @@ class Voice(Model):
     primary_reference_id: str | None
     preferred_sample_generation_id: str | None
     clip_id: str | None = None
+    style: dict[str, float] = {}
     consent: dict[str, Any]
     created_at: str
     updated_at: str
@@ -138,8 +152,9 @@ class Voice(Model):
 class VoiceTest(Model):
     text: str = Field(min_length=1, max_length=1000)
     language: str | None = None
-    reference_id: str | None = None
+    reference_id: str | None = None  # a recording or a clip; the voice's chosen clip if empty
     model_id: str | None = None
+    style: Style | None = None
 
 
 # -- generation and jobs --------------------------------------------------
@@ -149,6 +164,8 @@ class GenerateRequest(Model):
     language: str
     model_id: str | None = None
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    clip_id: str | None = None  # a style take of the voice; its chosen clip if empty
+    style: Style | None = None
 
 
 class Job(Model):

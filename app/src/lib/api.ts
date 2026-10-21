@@ -12,6 +12,7 @@ import type {
   Project,
   Reference,
   Storage,
+  Style,
   SystemStatus,
   Voice,
 } from "./types";
@@ -80,7 +81,7 @@ export const api = {
     language: string;
     consent: { confirmed: boolean; speaker: string; scope: string; notes: string };
   }) => post<Voice>("/api/voices", body),
-  updateVoice: (id: string, body: Partial<Voice> & { consent?: Voice["consent"] }) =>
+  updateVoice: (id: string, body: Partial<Omit<Voice, "style">> & { consent?: Voice["consent"]; style?: Partial<Style> }) =>
     patch<Voice>(`/api/voices/${id}`, body),
   deleteVoice: (id: string, deleteGenerations: boolean) =>
     del<void>(`/api/voices/${id}?delete_generations=${deleteGenerations}`),
@@ -99,13 +100,16 @@ export const api = {
     del<void>(`/api/voices/${voiceId}/references/${refId}`),
   referenceAudioUrl: (voiceId: string, refId: string, which: "reference" | "source", version?: string) =>
     mediaUrl(`/api/voices/${voiceId}/references/${refId}/audio?which=${which}`, version),
-  testVoice: (voiceId: string, body: { text: string; language?: string; model_id?: string }) =>
+  testVoice: (
+    voiceId: string,
+    body: { text: string; language?: string; model_id?: string; reference_id?: string; style?: Partial<Style> },
+  ) =>
     post<JobRef>(`/api/voices/${voiceId}/test`, body),
   buildVoice: (voiceId: string, body: { model_id?: string; language?: string; text?: string }) =>
     post<JobRef>(`/api/voices/${voiceId}/create`, body),
   clipAudioUrl: (voiceId: string, clipId: string) => mediaUrl(`/api/voices/${voiceId}/clips/${clipId}/audio`),
-  updateClip: (voiceId: string, clipId: string, transcript: string) =>
-    patch<Clip>(`/api/voices/${voiceId}/clips/${clipId}`, { transcript }),
+  updateClip: (voiceId: string, clipId: string, body: { transcript?: string; name?: string; kept?: boolean }) =>
+    patch<Clip>(`/api/voices/${voiceId}/clips/${clipId}`, body),
   clipDemo: (voiceId: string, clipId: string, body: { model_id?: string; language?: string }) =>
     post<JobRef>(`/api/voices/${voiceId}/clips/${clipId}/demo`, body),
   chooseClip: (voiceId: string, clipId: string) => post<Voice>(`/api/voices/${voiceId}/clips/${clipId}/choose`),
@@ -117,7 +121,15 @@ export const api = {
   },
 
   // generation and jobs
-  generate: (body: { text: string; voice_id: string; language: string; model_id?: string; seed?: number }) =>
+  generate: (body: {
+    text: string;
+    voice_id: string;
+    language: string;
+    model_id?: string;
+    seed?: number;
+    clip_id?: string;
+    style?: Partial<Style>;
+  }) =>
     post<JobRef>("/api/generate", body),
   job: (id: string) => get<Job>(`/api/jobs/${id}`),
   activeJobs: () => get<Job[]>("/api/jobs?status=active"),

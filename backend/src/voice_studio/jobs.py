@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import psutil
 
-from . import audio, text
+from . import audio, style, text
 from .catalog import WHISPER_LANGUAGES
 from .db import new_id, now_iso
 from .errors import EngineError, JobCancelled, NotFound, StudioError
@@ -315,6 +315,7 @@ class JobRunner:
         else:
             body = payload["text"]
         model_id = payload["model_id"]
+        delivery = style.resolve(clone["voice"]["style"], payload.get("style"))
 
         load = self._load_model(job, model_id)
         self._check_cancel(job_id)
@@ -362,6 +363,7 @@ class JobRunner:
                 "reference": {"audio_path": clone["audio_path"], "transcript": clone["transcript"]},
                 "seed": seed,
                 "out_dir": str(work_dir),
+                **style.sampling(delivery["expressiveness"]),
             },
             on_progress,
         )
@@ -387,7 +389,12 @@ class JobRunner:
                     paragraph_gap if piece.ends_paragraph else sentence_gap,
                 )
             )
-        combined = audio.normalise_peak(audio.join(parts, sample_rate), -1.0)
+        combined = audio.join(parts, sample_rate)
+        if style.needs_processing(delivery):
+            combined = audio.change_tempo_pitch(
+                combined, sample_rate, speed=delivery["speed"], semitones=delivery["pitch"]
+            )
+        combined = audio.normalise_peak(combined, -1.0)
         if len(combined) == 0:
             raise StudioError("empty_output", "The model produced no audible speech.")
 
@@ -417,7 +424,7 @@ class JobRunner:
             "engine": (loaded.get("info") or {}).get("engine"),
             "engine_details": (loaded.get("info") or {}).get("details"),
         }
-        params = {"seed": seed, "max_chunk_chars": studio.pref("max_chunk_chars")}
+        params = {"seed": seed, "max_chunk_chars": studio.pref("max_chunk_chars"), **delivery}
         with self.db.write() as conn:
             if (
                 job["kind"] == "segment"

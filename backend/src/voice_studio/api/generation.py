@@ -23,7 +23,8 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
             "text_too_long",
             f"Generate is limited to {studio.settings.max_generate_chars:,} characters. Use a project for longer scripts.",
         )
-    clone = VoiceService(studio).clone_reference(body.voice_id, None)  # fail now, not in the queue
+    # Fail now, not in the queue.
+    clone = VoiceService(studio).clone_reference(body.voice_id, body.clip_id)
     model_id = body.model_id or studio.pref("default_model_id")
     studio.models.voice_spec(model_id)
     job = studio.jobs.submit(
@@ -35,6 +36,7 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
             "language": body.language.lower(),
             "model_id": model_id,
             "seed": body.seed,
+            "style": body.style.model_dump() if body.style else None,
         },
         voice_id=body.voice_id,
     )

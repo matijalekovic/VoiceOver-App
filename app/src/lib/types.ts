@@ -49,6 +49,13 @@ export interface Reference {
   updated_at: string;
 }
 
+/** How a voice delivers its lines. Expressiveness 0–1, speed 0.8–1.25×, pitch ±2 semitones. */
+export interface Style {
+  expressiveness: number;
+  speed: number;
+  pitch: number;
+}
+
 /** A candidate reference cut from a recording; the chosen one is what the voice clones. */
 export interface Clip {
   id: string;
@@ -60,6 +67,9 @@ export interface Clip {
   quality: Quality;
   score: number;
   demo_generation_id: string | null;
+  /** Kept as a named style: survives "Create new takes" and can be picked per generation. */
+  name: string;
+  kept: boolean;
   created_at: string;
 }
 
@@ -80,6 +90,7 @@ export interface Voice {
   primary_reference_id: string | null;
   preferred_sample_generation_id: string | null;
   clip_id: string | null;
+  style: Style;
   consent: Consent;
   created_at: string;
   updated_at: string;

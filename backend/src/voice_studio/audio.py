@@ -228,6 +228,29 @@ def join(parts: list[tuple[np.ndarray, float]], sample_rate: int) -> np.ndarray:
     return np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.float32)
 
 
+def change_tempo_pitch(
+    samples: np.ndarray, sample_rate: int, *, speed: float, semitones: float
+) -> np.ndarray:
+    """Speed up or slow down without changing pitch, and shift pitch by a few semitones."""
+    factor = 2 ** (semitones / 12)
+    filters = []
+    if abs(factor - 1) > 1e-4:
+        # Raising the playback rate shifts pitch and tempo together; atempo then restores
+        # the tempo, so only the pitch moves.
+        filters += [f"asetrate={sample_rate * factor:.3f}", f"aresample={sample_rate}"]
+    tempo = speed / factor
+    if abs(tempo - 1) > 1e-4:
+        filters.append(f"atempo={tempo:.5f}")
+    if not filters:
+        return samples
+    with tempfile.TemporaryDirectory() as folder:
+        src, dst = Path(folder) / "in.wav", Path(folder) / "out.wav"
+        sf.write(str(src), samples.astype(np.float32), sample_rate, subtype="FLOAT")
+        _run_ffmpeg(["-i", str(src), "-af", ",".join(filters), "-c:a", "pcm_f32le", str(dst)])
+        out, _ = sf.read(str(dst), dtype="float32", always_2d=False)
+    return np.asarray(out, dtype=np.float32)
+
+
 EXPORT_FORMATS = {"wav", "mp3"}
 MP3_BITRATES = {192, 320}
 EXPORT_SAMPLE_RATES = {24_000, 44_100, 48_000}
