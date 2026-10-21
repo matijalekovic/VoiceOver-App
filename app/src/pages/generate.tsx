@@ -116,7 +116,7 @@ export function Generate() {
   return (
     <>
       <PageHeader
-        title="Generate"
+        title="Text to Speech"
         description="Turn text into speech with one of your cloned voices."
         actions={
           <DropdownMenu>

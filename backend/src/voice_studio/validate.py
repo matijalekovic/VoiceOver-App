@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -113,10 +114,9 @@ def environment() -> dict[str, Any]:
     }
     try:
         import mlx.core as mx
-        import mlx_audio
 
         info["mlx"] = mx.__version__
-        info["mlx_audio"] = mlx_audio.__version__
+        info["mlx_audio"] = metadata.version("mlx-audio")
     except ImportError:
         info["mlx"] = None
     return info
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--models",
         default=DEFAULT_MODEL_ID,
-        help=f"Comma-separated model ids: {', '.join(s.id for s in CATALOG)}",
+        help=f"Comma-separated model ids: {', '.join(s.id for s in CATALOG if s.kind == 'tts')}",
     )
     parser.add_argument("--languages", default="english,french,spanish")
     parser.add_argument(

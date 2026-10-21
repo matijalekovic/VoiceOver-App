@@ -57,7 +57,9 @@ function ModelRow({ model, isDefault, onDefault }: { model: ModelEntry; isDefaul
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-medium">{model.label}</p>
-            <Badge tone={model.tier === "quality" ? "ink" : "neutral"}>{model.tier === "quality" ? "Quality" : "Lightweight"}</Badge>
+            <Badge tone={model.tier === "quality" ? "ink" : model.kind === "stt" ? "blue" : "neutral"}>
+              {model.kind === "stt" ? "Speech recognition" : model.tier === "quality" ? "Quality" : "Lightweight"}
+            </Badge>
             {model.loaded && <Badge tone="green">Loaded</Badge>}
             {isDefault && <Badge tone="blue">Default</Badge>}
           </div>
@@ -69,12 +71,12 @@ function ModelRow({ model, isDefault, onDefault }: { model: ModelEntry; isDefaul
         <div className="flex flex-wrap items-center gap-2">
           {s.state === "installed" && (
             <>
-              {!isDefault && (
+              {!isDefault && model.kind === "tts" && (
                 <Button size="sm" variant="ghost" onClick={onDefault}>
                   Make default
                 </Button>
               )}
-              {model.loaded ? (
+              {model.kind !== "tts" ? null : model.loaded ? (
                 <Button size="sm" variant="outline" onClick={act(() => api.unloadModel(), "Could not unload")}>
                   Unload
                 </Button>

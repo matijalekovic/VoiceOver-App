@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from importlib import metadata
 from pathlib import Path
 
 import numpy as np
@@ -21,7 +22,6 @@ class MlxQwen3TTSEngine:
     def load(self, model_dir: Path) -> EngineInfo:
         try:
             import mlx.core as mx
-            import mlx_audio
             from mlx_audio.tts.utils import load_model
         except ImportError as exc:  # not Apple Silicon, or the runtime is not installed
             raise EngineError(
@@ -60,7 +60,7 @@ class MlxQwen3TTSEngine:
             model_dir=str(model_dir),
             sample_rate=self._sample_rate,
             languages=languages,
-            details={"mlx_audio": mlx_audio.__version__, "mlx": mx.__version__},
+            details={"mlx_audio": metadata.version("mlx-audio"), "mlx": mx.__version__},
         )
 
     def synthesize(self, request: ChunkRequest) -> np.ndarray:

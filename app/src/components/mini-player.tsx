@@ -76,6 +76,7 @@ export function PlayButton({
     <Button
       size={size}
       variant={variant}
+      className="rounded-full"
       disabled={!url}
       aria-label={active ? "Pause" : (label ?? "Play")}
       onClick={(e) => {

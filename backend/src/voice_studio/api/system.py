@@ -44,7 +44,7 @@ def cancel_download(body: schemas.ModelAction, studio: Studio = Depends(get_stud
 
 @router.post("/models/load", response_model=schemas.JobRef, status_code=202)
 def load_model(body: schemas.ModelAction, studio: Studio = Depends(get_studio)):
-    spec = studio.models.spec(body.model_id)
+    spec = studio.models.voice_spec(body.model_id)
     if not studio.models.is_installed(body.model_id):
         raise StudioError("model_not_installed", f"{spec.label} is not installed yet.")
     job = studio.jobs.submit("load_model", {"model_id": body.model_id})
@@ -80,7 +80,7 @@ def get_settings(studio: Studio = Depends(get_studio)):
 def update_settings(body: schemas.Preferences, studio: Studio = Depends(get_studio)):
     values = body.model_dump(exclude_unset=True, exclude_none=True)
     if "default_model_id" in values:
-        studio.models.spec(values["default_model_id"])
+        studio.models.voice_spec(values["default_model_id"])
     if "output_dir" in values:
         folder = Path(values["output_dir"]).expanduser()
         if not folder.is_absolute():

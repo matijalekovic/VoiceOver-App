@@ -92,7 +92,7 @@ class ProjectService:
         project_id = new_id()
         stamp = now_iso()
         model_id = data.get("model_id") or self.studio.pref("default_model_id")
-        self.studio.models.spec(model_id)
+        self.studio.models.voice_spec(model_id)
         self.db.execute(
             "INSERT INTO projects (id, name, script, voice_id, language, model_id, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -109,7 +109,7 @@ class ProjectService:
         self.get(project_id)
         fields = {k: v for k, v in patch.items() if v is not None}
         if "model_id" in fields:
-            self.studio.models.spec(fields["model_id"])
+            self.studio.models.voice_spec(fields["model_id"])
         if fields:
             fields["updated_at"] = now_iso()
             assignments = ", ".join(f"{k} = ?" for k in fields)

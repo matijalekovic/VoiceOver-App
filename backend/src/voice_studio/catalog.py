@@ -2,7 +2,8 @@
 
 Only Qwen3-TTS *Base* checkpoints are listed: they are the ones that clone from reference
 audio. CustomVoice and VoiceDesign checkpoints use a different generation path and are
-rejected when a folder is validated (see models.validate_model_dir).
+rejected when a folder is validated (see models.validate_model_dir). One speech-to-text
+checkpoint (kind "stt") transcribes recordings so clips can be cut on word boundaries.
 """
 
 from __future__ import annotations
@@ -10,6 +11,20 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 MLX_QWEN3_ENGINE = "voice_studio.worker.mlx_qwen3:MlxQwen3TTSEngine"
+
+# Whisper's language codes for the same languages.
+WHISPER_LANGUAGES: dict[str, str] = {
+    "english": "en",
+    "french": "fr",
+    "spanish": "es",
+    "german": "de",
+    "italian": "it",
+    "portuguese": "pt",
+    "russian": "ru",
+    "chinese": "zh",
+    "japanese": "ja",
+    "korean": "ko",
+}
 
 # Qwen3-TTS language names as the checkpoint's codec_language_id spells them.
 QWEN3_LANGUAGES: dict[str, str] = {
@@ -38,6 +53,7 @@ class ModelSpec:
     approx_memory_gb: float  # planning figure, replaced by measurements after validation
     engine: str
     notes: str = ""
+    kind: str = "tts"  # "tts" clones voices; "stt" transcribes recordings
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -80,9 +96,23 @@ CATALOG: list[ModelSpec] = [
         engine=MLX_QWEN3_ENGINE,
         notes="Lightweight mode for lower memory use.",
     ),
+    ModelSpec(
+        id="whisper-large-v3-turbo",
+        label="Whisper large-v3 turbo",
+        repo_id="mlx-community/whisper-large-v3-turbo-asr-fp16",
+        tier="speech recognition",
+        parameters="0.8B",
+        quantization="fp16",
+        approx_download_gb=1.6,
+        approx_memory_gb=2.0,
+        engine="voice_studio.worker.whisper:MlxWhisperTranscriber",
+        notes="Transcribes recordings when you create a voice.",
+        kind="stt",
+    ),
 ]
 
 DEFAULT_MODEL_ID = CATALOG[0].id
+STT_MODEL_ID = "whisper-large-v3-turbo"
 
 
 def get_spec(model_id: str, catalog: list[ModelSpec] | None = None) -> ModelSpec | None:

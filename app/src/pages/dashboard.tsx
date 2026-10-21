@@ -151,7 +151,7 @@ export function Dashboard() {
                   Download Qwen3-TTS 1.7B Base (about 4.5 GB) once. After that everything runs offline.
                 </Step>
                 <Step done={voiceReady} title="Clone your first voice" to="/clone" cta="Clone">
-                  Upload or record 10–30 seconds of clean speech from a speaker who has given permission.
+                  Upload or record up to 3 minutes of clean speech from a speaker who has given permission.
                 </Step>
                 <Step done={generated} title="Generate a voiceover" to="/generate" cta="Generate">
                   Type a script, pick the voice and language, and export WAV or MP3.

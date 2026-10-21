@@ -1,27 +1,85 @@
 import {
   AudioLines,
+  ChevronRight,
   FolderKanban,
   History as HistoryIcon,
-  LayoutGrid,
-  Mic2,
+  House,
+  Mic,
   Settings as SettingsIcon,
-  UserRound,
+  UsersRound,
 } from "lucide-react";
-import { NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { useActiveJobs, useModels, useStatus } from "@/lib/hooks";
 import { cn, formatBytes } from "@/lib/utils";
 import { BrandMark } from "./brand";
 import { stageLabel } from "./job-progress";
 
-const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutGrid, end: true },
-  { to: "/generate", label: "Generate", icon: AudioLines },
-  { to: "/voices", label: "My Voices", icon: UserRound, end: true },
-  { to: "/clone", label: "Clone Voice", icon: Mic2 },
-  { to: "/projects", label: "Projects", icon: FolderKanban },
-  { to: "/history", label: "History", icon: HistoryIcon },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
+const NAV_GROUPS = [
+  {
+    items: [
+      { to: "/", label: "Home", icon: House, end: true },
+      { to: "/voices", label: "Voices", icon: UsersRound },
+      { to: "/projects", label: "Projects", icon: FolderKanban },
+    ],
+  },
+  {
+    title: "Create",
+    items: [
+      { to: "/generate", label: "Text to Speech", icon: AudioLines },
+      { to: "/clone", label: "Voice Cloning", icon: Mic },
+      { to: "/history", label: "History", icon: HistoryIcon },
+    ],
+  },
 ];
+
+const SECTIONS: Record<string, string> = {
+  "": "Home",
+  generate: "Text to Speech",
+  voices: "Voices",
+  clone: "Voice Cloning",
+  projects: "Projects",
+  history: "History",
+  settings: "Settings",
+};
+const DETAIL: Record<string, string> = { voices: "Voice", projects: "Project" };
+
+function Breadcrumb() {
+  const [section = "", detail] = useLocation().pathname.split("/").filter(Boolean);
+  const label = SECTIONS[section] ?? section;
+  return (
+    <nav className="flex min-w-0 items-center gap-2 text-[14.5px]" aria-label="Breadcrumb">
+      {detail ? (
+        <>
+          <Link to={`/${section}`} className="text-ink-3 transition-colors hover:text-ink">
+            {label}
+          </Link>
+          <ChevronRight className="size-4 shrink-0 text-ink-3" />
+          <span className="truncate font-medium">{DETAIL[section] ?? detail}</span>
+        </>
+      ) : (
+        <span className="font-medium">{label}</span>
+      )}
+    </nav>
+  );
+}
+
+function SideLink({ to, label, icon: Icon, end }: { to: string; label: string; icon: typeof House; end?: boolean }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        cn(
+          "flex h-9 items-center gap-3 rounded-[10px] px-2.5 text-[14.5px] text-ink transition-colors",
+          isActive ? "bg-panel-2 font-medium" : "hover:bg-panel-2/70",
+        )
+      }
+    >
+      <Icon className="size-[18px] text-ink-2" strokeWidth={1.75} />
+      {label}
+    </NavLink>
+  );
+}
 
 function EngineCard() {
   const { data: status } = useStatus();
@@ -40,8 +98,8 @@ function EngineCard() {
           ? "bg-amber animate-pulse"
           : "bg-ink-3";
   return (
-    <div className="rounded-xl border border-rule bg-panel px-3 py-2.5 text-xs">
-      <div className="flex items-center gap-2 font-medium text-ink">
+    <div className="rounded-2xl border border-rule bg-panel px-3.5 py-3 text-xs shadow-card">
+      <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
         <span className={cn("size-2 rounded-full", dot)} />
         {running ? stageLabel(running) : model ? `${model.parameters} ${model.quantization} loaded` : "No model loaded"}
       </div>
@@ -56,42 +114,39 @@ function EngineCard() {
 export function Layout() {
   return (
     <div className="flex h-full">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-rule bg-panel-2/40 px-3 pb-3">
+      <aside className="flex w-[244px] shrink-0 flex-col border-r border-rule bg-panel px-3 pb-3">
         {/* Space for the macOS traffic lights; the strip drags the window. */}
         <div className="h-10 shrink-0" data-tauri-drag-region />
-        <div className="mb-5 flex items-center gap-2.5 px-2" data-tauri-drag-region>
-          <BrandMark size={26} />
-          <div className="leading-tight">
-            <p className="text-[13px] font-semibold">Voice Studio</p>
-            <p className="text-[11px] text-ink-3">1PAX · local</p>
-          </div>
-        </div>
-        <nav className="flex flex-col gap-0.5">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13.5px] transition-colors",
-                  isActive ? "bg-panel-3 font-medium text-ink" : "text-ink-2 hover:bg-panel-2 hover:text-ink",
-                )
-              }
-            >
-              <Icon className="size-4" />
-              {label}
-            </NavLink>
+        <Link to="/" className="mb-6 flex items-center gap-2 px-2.5">
+          <BrandMark size={22} />
+          <span className="text-[18px] font-bold tracking-[-0.02em]">Voice Studio</span>
+        </Link>
+        <nav className="flex flex-col gap-6">
+          {NAV_GROUPS.map((group, i) => (
+            <div key={i} className="flex flex-col gap-0.5">
+              {group.title && <p className="mb-1 px-2.5 text-[13.5px] text-ink-3">{group.title}</p>}
+              {group.items.map((item) => (
+                <SideLink key={item.to} {...item} />
+              ))}
+            </div>
           ))}
         </nav>
-        <div className="mt-auto">
+        <div className="mt-auto flex flex-col gap-3">
+          <SideLink to="/settings" label="Settings" icon={SettingsIcon} />
           <EngineCard />
         </div>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="h-10" data-tauri-drag-region />
-        <div className="mx-auto max-w-6xl px-8 pb-16">
-          <Outlet />
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header
+          className="flex h-[60px] shrink-0 items-center gap-4 border-b border-rule bg-panel px-8"
+          data-tauri-drag-region
+        >
+          <Breadcrumb />
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-6xl px-10 pb-16 pt-9">
+            <Outlet />
+          </div>
         </div>
       </main>
     </div>
@@ -108,10 +163,10 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 text-[13.5px] text-ink-2">{description}</p>}
+        <h1 className="text-[30px] font-medium leading-tight tracking-[-0.02em]">{title}</h1>
+        {description && <p className="mt-1.5 text-[14.5px] text-ink-3">{description}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import schemas
+from ..clips import demo_script
 from ..errors import StudioError
 from ..generations import GenerationService
 from ..studio import Studio
@@ -111,7 +112,7 @@ def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(
     voice = service.get(voice_id)
     clone = service.clone_reference(voice_id, body.reference_id)
     model_id = body.model_id or studio.pref("default_model_id")
-    studio.models.spec(model_id)
+    studio.models.voice_spec(model_id)
     job = studio.jobs.submit(
         "voice_test",
         {
@@ -131,3 +132,71 @@ def export_voice(voice_id: str, studio: Studio = Depends(get_studio)):
     folder = GenerationService(studio).output_dir() / "Voices"
     path = VoiceService(studio).export_zip(voice_id, folder)
     return {"paths": [str(path)], "folder": str(folder)}
+
+
+@router.post("/{voice_id}/create", response_model=schemas.JobRef, status_code=202)
+def build_voice(voice_id: str, body: schemas.VoiceBuild, studio: Studio = Depends(get_studio)):
+    """Transcribe the recordings, cut candidate clips and voice a demo with each."""
+    voice = VoiceService(studio).get(voice_id)
+    if not voice["references"]:
+        raise StudioError("reference_required", "Add at least one recording first.")
+    model_id = body.model_id or studio.pref("default_model_id")
+    studio.models.voice_spec(model_id)
+    job = studio.jobs.submit(
+        "voice_create",
+        {
+            "voice_id": voice_id,
+            "model_id": model_id,
+            "language": _resolve_language(body.language, voice["language"]),
+            "text": body.text,
+            "seed": body.seed,
+        },
+        voice_id=voice_id,
+    )
+    return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.get("/{voice_id}/clips/{clip_id}/audio")
+def clip_audio(voice_id: str, clip_id: str, studio: Studio = Depends(get_studio)):
+    return FileResponse(
+        VoiceService(studio).clip_audio_path(voice_id, clip_id), media_type="audio/wav"
+    )
+
+
+@router.patch("/{voice_id}/clips/{clip_id}", response_model=schemas.Clip)
+def update_clip(
+    voice_id: str, clip_id: str, body: schemas.ClipUpdate, studio: Studio = Depends(get_studio)
+):
+    return VoiceService(studio).update_clip(voice_id, clip_id, body.transcript)
+
+
+@router.post("/{voice_id}/clips/{clip_id}/demo", response_model=schemas.JobRef, status_code=202)
+def clip_demo(
+    voice_id: str, clip_id: str, body: schemas.VoiceBuild, studio: Studio = Depends(get_studio)
+):
+    """Voice the demo again with this clip (after its transcript was corrected)."""
+    service = VoiceService(studio)
+    voice = service.get(voice_id)
+    service.clip_row(voice_id, clip_id)
+    model_id = body.model_id or studio.pref("default_model_id")
+    studio.models.voice_spec(model_id)
+    language = _resolve_language(body.language, voice["language"])
+    job = studio.jobs.submit(
+        "voice_test",
+        {
+            "text": body.text or demo_script(language),
+            "voice_id": voice_id,
+            "reference_id": clip_id,
+            "clip_id": clip_id,
+            "language": language,
+            "model_id": model_id,
+            "seed": body.seed,
+        },
+        voice_id=voice_id,
+    )
+    return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.post("/{voice_id}/clips/{clip_id}/choose", response_model=schemas.Voice)
+def choose_clip(voice_id: str, clip_id: str, studio: Studio = Depends(get_studio)):
+    return VoiceService(studio).choose_clip(voice_id, clip_id)

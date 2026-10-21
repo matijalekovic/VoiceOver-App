@@ -18,6 +18,7 @@ from voice_studio.config import Paths, Settings  # noqa: E402
 
 TOKEN = "test-token"
 FAKE_MODEL = "fake-base"
+FAKE_STT = "fake-whisper"
 
 
 def fake_catalog() -> list[ModelSpec]:
@@ -32,8 +33,29 @@ def fake_catalog() -> list[ModelSpec]:
             approx_download_gb=0,
             approx_memory_gb=0,
             engine="fake_engine:FakeEngine",
-        )
+        ),
+        ModelSpec(
+            id=FAKE_STT,
+            label="Fake Whisper",
+            repo_id="example/fake-whisper",
+            tier="speech recognition",
+            parameters="0",
+            quantization="none",
+            approx_download_gb=0,
+            approx_memory_gb=0,
+            engine="fake_engine:FakeTranscriber",
+            kind="stt",
+        ),
     ]
+
+
+def install_fake_stt(models_dir: Path) -> None:
+    folder = models_dir / FAKE_STT
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "config.json").write_text("{}")
+    (folder / "model.safetensors").write_bytes(b"0")
+    for name in ("tokenizer.json", "preprocessor_config.json", "generation_config.json"):
+        (folder / name).write_text("{}")
 
 
 def install_fake_model(models_dir: Path) -> None:

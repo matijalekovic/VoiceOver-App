@@ -2,21 +2,22 @@
 @import "@fontsource-variable/inter";
 
 /*
- * Studio palette shared with the other 1PAX tools: white surfaces, hairline borders and
- * near-black ink. Colour is kept for meaning (status, levels); the one accent is ink itself,
- * so primary actions are black on light and white on dark.
+ * Studio palette in the ElevenLabs manner: white surfaces, a soft grey stage behind content,
+ * hairline borders and pure black ink. Colour is kept for meaning (status, levels); the one
+ * accent is ink itself, so primary actions are black on light and white on dark.
  */
 :root {
   --floor: #ffffff;
   --panel: #ffffff;
-  --panel-2: #f5f5f5;
-  --panel-3: #ececec;
-  --ink: #0a0a0a;
-  --ink-2: #525252;
-  --ink-3: #6b6b6b;
-  --rule: #ebebeb;
-  --rule-strong: #dedede;
-  --accent: #0a0a0a;
+  --panel-2: #f6f6f6;
+  --panel-3: #ededed;
+  --stage: #f9f9f9;
+  --ink: #000000;
+  --ink-2: #4d4d4d;
+  --ink-3: #737373;
+  --rule: #e9e9e9;
+  --rule-strong: #e0e0e0;
+  --accent: #000000;
   --accent-ink: #ffffff;
   --green: #15803d;
   --green-soft: #eaf7ef;
@@ -26,20 +27,22 @@
   --amber-soft: #fdf4e0;
   --blue: #1d5bd8;
   --blue-soft: #edf3fe;
-  --wave: #c9c9c9;
-  --wave-progress: #0a0a0a;
-  --focus: #0a0a0a;
-  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 1px rgb(0 0 0 / 0.02);
-  --pop-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.18), 0 2px 6px rgb(0 0 0 / 0.05);
+  --wave: #d4d4d4;
+  --wave-progress: #000000;
+  --focus: #a3a3a3;
+  --card-shadow: 0 1px 3px rgb(0 0 0 / 0.05), 0 1px 1px rgb(0 0 0 / 0.03);
+  --control-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  --pop-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.16), 0 2px 6px rgb(0 0 0 / 0.05);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --floor: #0c0c0c;
-    --panel: #141414;
-    --panel-2: #1e1e1e;
-    --panel-3: #282828;
+    --floor: #0b0b0b;
+    --panel: #121212;
+    --panel-2: #1c1c1c;
+    --panel-3: #262626;
+    --stage: #0f0f0f;
     --ink: #fafafa;
     --ink-2: #b4b4b4;
     --ink-3: #8f8f8f;
@@ -57,18 +60,20 @@
     --blue-soft: #142340;
     --wave: #4a4a4a;
     --wave-progress: #fafafa;
-    --focus: #fafafa;
+    --focus: #737373;
     --card-shadow: 0 0 0 transparent;
+    --control-shadow: 0 0 0 transparent;
     --pop-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.7);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --floor: #0c0c0c;
-  --panel: #141414;
-  --panel-2: #1e1e1e;
-  --panel-3: #282828;
+  --floor: #0b0b0b;
+  --panel: #121212;
+  --panel-2: #1c1c1c;
+  --panel-3: #262626;
+  --stage: #0f0f0f;
   --ink: #fafafa;
   --ink-2: #b4b4b4;
   --ink-3: #8f8f8f;
@@ -86,8 +91,9 @@
   --blue-soft: #142340;
   --wave: #4a4a4a;
   --wave-progress: #fafafa;
-  --focus: #fafafa;
+  --focus: #737373;
   --card-shadow: 0 0 0 transparent;
+  --control-shadow: 0 0 0 transparent;
   --pop-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.7);
   color-scheme: dark;
 }
@@ -97,6 +103,7 @@
   --color-panel: var(--panel);
   --color-panel-2: var(--panel-2);
   --color-panel-3: var(--panel-3);
+  --color-stage: var(--stage);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
@@ -114,6 +121,7 @@
   --color-blue-soft: var(--blue-soft);
   --shadow-card: var(--card-shadow);
   --shadow-pop: var(--pop-shadow);
+  --shadow-control: var(--control-shadow);
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -157,7 +165,6 @@ textarea,
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-  border-radius: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {

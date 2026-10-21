@@ -107,7 +107,7 @@ function VoiceCard({ voice, onDelete }: { voice: Voice; onDelete: (v: Voice) => 
           </DropdownTrigger>
           <DropdownContent>
             <DropdownItem onSelect={() => navigate(`/generate?voice=${voice.id}`)} disabled={voice.status !== "ready"}>
-              <AudioLines /> Use in Generate
+              <AudioLines /> Use in Text to Speech
             </DropdownItem>
             <DropdownItem onSelect={() => navigate(`/voices/${voice.id}`)}>
               <Pencil /> Edit
@@ -160,7 +160,7 @@ export function Voices() {
   return (
     <>
       <PageHeader
-        title="My Voices"
+        title="Voices"
         description="Voice profiles cloned from authorised recordings. They stay on this Mac."
         actions={
           <>
@@ -208,7 +208,7 @@ export function Voices() {
             </Button>
           }
         >
-          A voice is cloned from 10–30 seconds of clean speech and its exact transcript.
+          A voice is cloned from up to 3 minutes of clean speech; Voice Studio picks the best clip from it.
         </EmptyState>
       )}
       <DeleteVoiceDialog voice={deleting} onClose={() => setDeleting(null)} />
