@@ -185,7 +185,7 @@ export function Generate() {
 
       {readyVoices.length === 0 && voices && (
         <Callout tone="amber" className="mb-5">
-          You have no ready voices yet. <Link to="/clone" className="font-medium underline">Clone a voice</Link> first.
+          You have no ready voices yet. <Link to="/voices/new" className="font-medium underline">Clone a voice</Link> first.
         </Callout>
       )}
 

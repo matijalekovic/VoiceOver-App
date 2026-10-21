@@ -4,7 +4,6 @@ import {
   FolderKanban,
   History as HistoryIcon,
   House,
-  Mic,
   Settings as SettingsIcon,
   UsersRound,
 } from "lucide-react";
@@ -26,7 +25,6 @@ const NAV_GROUPS = [
     title: "Create",
     items: [
       { to: "/generate", label: "Text to Speech", icon: AudioLines },
-      { to: "/clone", label: "Voice Cloning", icon: Mic },
       { to: "/history", label: "History", icon: HistoryIcon },
     ],
   },
@@ -36,7 +34,6 @@ const SECTIONS: Record<string, string> = {
   "": "Home",
   generate: "Text to Speech",
   voices: "Voices",
-  clone: "Voice Cloning",
   projects: "Projects",
   history: "History",
   settings: "Settings",
@@ -54,7 +51,7 @@ function Breadcrumb() {
             {label}
           </Link>
           <ChevronRight className="size-4 shrink-0 text-ink-3" />
-          <span className="truncate font-medium">{DETAIL[section] ?? detail}</span>
+          <span className="truncate font-medium">{detail === "new" ? `New ${DETAIL[section]?.toLowerCase()}` : (DETAIL[section] ?? detail)}</span>
         </>
       ) : (
         <span className="font-medium">{label}</span>

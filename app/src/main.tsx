@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { createHashRouter, RouterProvider } from "react-router";
+import { createHashRouter, Navigate, RouterProvider } from "react-router";
 import { Toaster } from "sonner";
 import { BackendGate } from "@/components/backend-gate";
 import { Layout } from "@/components/layout";
@@ -32,7 +32,8 @@ const router = createHashRouter([
       { path: "/generate", element: <Generate /> },
       { path: "/voices", element: <Voices /> },
       { path: "/voices/:voiceId", element: <VoiceDetail /> },
-      { path: "/clone", element: <CloneVoice /> },
+      { path: "/voices/new", element: <CloneVoice /> },
+      { path: "/clone", element: <Navigate to="/voices/new" replace /> },
       { path: "/projects", element: <Projects /> },
       { path: "/projects/:projectId", element: <ProjectEditor /> },
       { path: "/history", element: <History /> },
