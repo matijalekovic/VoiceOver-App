@@ -1,0 +1,60 @@
+[project]
+name = "voice-studio-backend"
+version = "0.1.0"
+description = "Local API and inference worker for 1PAX Voice Studio"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.32,<1",
+    "pydantic>=2.9,<3",
+    "python-multipart>=0.0.20",
+    "numpy>=1.26",
+    "soundfile>=0.12.1",
+    "imageio-ffmpeg>=0.6.0",
+    "psutil>=6.0",
+    "huggingface_hub>=1.0",
+    # The inference runtime only exists for Apple Silicon. On other platforms the
+    # API still runs (for development and tests) but reports the engine as unavailable.
+    "mlx-audio==0.6.1; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+
+[project.scripts]
+voice-studio-server = "voice_studio.__main__:main"
+voice-studio-validate = "voice_studio.validate:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.27",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voice_studio"]
+
+[tool.uv]
+# Resolve for the Mac this ships on as well as for Linux (CI and development).
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux'",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's dependency injection is declared in argument defaults.
+"src/voice_studio/api/*.py" = ["B008"]

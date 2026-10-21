@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Vite
+node_modules/
+dist/
+
+# Tauri / Rust
+app/src-tauri/target/
+app/src-tauri/gen/schemas/
+app/src-tauri/binaries/
+app/src-tauri/resources/backend/
+
+# Local outputs
+validation-*/
+.DS_Store
