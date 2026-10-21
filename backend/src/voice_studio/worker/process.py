@@ -35,8 +35,11 @@ def _peak_rss_bytes() -> int:
 
 def _watch_parent(parent_pid: int) -> None:
     # If the API process dies without stopping us, exit instead of holding GPU memory.
+    # Windows never re-parents orphans, so check that the parent still exists.
+    import psutil
+
     while True:
-        if os.getppid() != parent_pid:
+        if os.getppid() != parent_pid or not psutil.pid_exists(parent_pid):
             os._exit(0)
         time.sleep(1.0)
 

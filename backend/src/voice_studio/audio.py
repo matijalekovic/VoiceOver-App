@@ -13,6 +13,7 @@ import numpy as np
 import soundfile as sf
 
 from .errors import StudioError
+from .platform import NO_WINDOW
 
 MODEL_SAMPLE_RATE = 24_000
 _FRAME_S = 0.02
@@ -39,7 +40,7 @@ def ffmpeg_exe() -> str:
 
 def _run_ffmpeg(args: list[str]) -> None:
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, **NO_WINDOW)
     if proc.returncode != 0:
         raise StudioError(
             "audio_conversion_failed",

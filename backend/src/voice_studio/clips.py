@@ -121,6 +121,44 @@ def _windows(
     return found
 
 
+SENTENCE_ENDS = (".", "!", "?", "…", "。", "！", "？")
+MAX_SENTENCE_S = 8.0
+
+
+def sentences(segments: list[dict]) -> list[dict]:
+    """Regroup Whisper's segments into sentences using the word timings, so clips start
+    and end where a sentence does. (Segment boundaries can fall mid-sentence, notably with
+    faster-whisper.) Segments without word timings are kept as they are."""
+    if not segments or not all(s.get("words") for s in segments):
+        return segments
+    out: list[dict] = []
+    current: list[dict] = []
+    for segment in segments:
+        for word in segment["words"]:
+            if current and word["start"] - current[-1]["end"] > MAX_GAP_S:
+                out.append(current)  # a long pause ends a sentence, punctuated or not
+                current = []
+            current.append(word)
+            if word["word"].strip().endswith(SENTENCE_ENDS):
+                out.append(current)
+                current = []
+        # Unpunctuated speech would otherwise run on; close long runs at a segment end.
+        if current and current[-1]["end"] - current[0]["start"] > MAX_SENTENCE_S:
+            out.append(current)
+            current = []
+    if current:
+        out.append(current)
+    return [
+        {
+            "start": words[0]["start"],
+            "end": words[-1]["end"],
+            "text": "".join(w["word"] for w in words).strip(),
+            "words": words,
+        }
+        for words in out
+    ]
+
+
 def pick_candidates(
     recordings: list[tuple[str, list[dict], np.ndarray, int]],
     count: int = CANDIDATES,
@@ -132,7 +170,7 @@ def pick_candidates(
     pool: list[Candidate] = []
     for min_s in (MIN_CLIP_S, FALLBACK_MIN_CLIP_S):
         for reference_id, segments, samples, sr in recordings:
-            pool.extend(_windows(reference_id, segments, samples, sr, min_s))
+            pool.extend(_windows(reference_id, sentences(segments), samples, sr, min_s))
         if pool:
             break
     pool.sort(key=lambda c: c.score, reverse=True)

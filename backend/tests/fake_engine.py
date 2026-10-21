@@ -63,17 +63,17 @@ class FakeTranscriber:
         start = 0.5
         while start + 3.5 <= duration:
             end = start + 3.5
+            text = f"Sentence at {start:.1f}."
+            tokens = text.split()
             words = [
                 {
-                    "start": start + 0.5 * k,
-                    "end": start + 0.5 * k + 0.4,
-                    "word": f" w{k}",
+                    "start": start + k * 3.5 / len(tokens),
+                    "end": start + (k + 0.9) * 3.5 / len(tokens),
+                    "word": (" " if k else "") + token,
                     "probability": 0.9,
                 }
-                for k in range(7)
+                for k, token in enumerate(tokens)
             ]
-            segments.append(
-                {"start": start, "end": end, "text": f"Sentence at {start:.1f}.", "words": words}
-            )
+            segments.append({"start": start, "end": end, "text": text, "words": words})
             start += 4.0
         return segments
