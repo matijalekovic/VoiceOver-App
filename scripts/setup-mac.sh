@@ -49,7 +49,7 @@ echo "uv $(uv --version | cut -d' ' -f2) · node $(node --version) · $(rustc --
 say "4/5 Backend environment (Python 3.12, FastAPI, MLX, mlx-audio)"
 cd "$ROOT/backend"
 uv sync
-uv run python -c "import mlx.core as mx, mlx_audio; print('mlx', mx.__version__, '· mlx-audio', mlx_audio.__version__, '· device', mx.default_device())"
+uv run python -c "import mlx.core as mx, mlx_audio; from importlib.metadata import version; print('mlx', mx.__version__, '· mlx-audio', version('mlx-audio'), '· device', mx.default_device())"
 uv run pytest -q
 
 say "5/5 Desktop UI dependencies"
