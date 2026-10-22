@@ -277,17 +277,18 @@ class InferenceClient:
         assert self._proc is not None and self._conn is not None
         self._conn.send(message)
         while True:
-            if self._conn.poll(0.2):
-                try:
-                    reply = self._conn.recv()
-                except (EOFError, OSError):
-                    reply = None
-                if reply is not None:
-                    if reply.get("type") == "progress":
-                        if on_progress:
-                            on_progress(reply)
-                        continue
-                    return reply
+            try:
+                # On Windows poll() itself raises once the worker is gone (WinError 109).
+                reply = self._conn.recv() if self._conn.poll(0.2) else None
+            except (EOFError, OSError):
+                reply = None
+                self._proc.join(1)  # let it finish exiting, so the check below sees it
+            if reply is not None:
+                if reply.get("type") == "progress":
+                    if on_progress:
+                        on_progress(reply)
+                    continue
+                return reply
             if not self._proc.is_alive():
                 exit_code = self._proc.exitcode
                 forced = self._force_stopped
