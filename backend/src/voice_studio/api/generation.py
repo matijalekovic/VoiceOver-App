@@ -24,22 +24,29 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
             f"Generate is limited to {studio.settings.max_generate_chars:,} characters. Use a project for longer scripts.",
         )
     # Fail now, not in the queue.
-    clone = VoiceService(studio).clone_reference(body.voice_id, body.clip_id)
-    model_id = body.model_id or studio.pref("default_model_id")
-    studio.models.voice_spec(model_id)
-    job = studio.jobs.submit(
-        "tts",
-        {
-            "text": body.text,
-            "voice_id": body.voice_id,
-            "reference_id": clone["reference_id"],
-            "language": body.language.lower(),
-            "model_id": model_id,
-            "seed": body.seed,
-            "style": body.style.model_dump() if body.style else None,
-        },
-        voice_id=body.voice_id,
+    service = VoiceService(studio)
+    voice = service.get(body.voice_id)
+    payload: dict = {
+        "text": body.text,
+        "voice_id": body.voice_id,
+        "language": body.language.lower(),
+        "seed": body.seed,
+        "style": body.style.model_dump() if body.style else None,
+    }
+    if voice["mode"] == "design":
+        if not voice["instructions"].strip():
+            raise StudioError(
+                "instructions_required", "Describe the voice before generating with it."
+            )
+    else:
+        clone = service.clone_reference(body.voice_id, body.clip_id)
+        payload["reference_id"] = clone["reference_id"]
+    model_id = body.model_id or studio.models.default_model_for(
+        voice["mode"], studio.pref("default_model_id")
     )
+    studio.models.spec_for_mode(voice["mode"], model_id)
+    payload["model_id"] = model_id
+    job = studio.jobs.submit("tts", payload, voice_id=body.voice_id)
     return {"job_id": job["id"], "status": job["status"]}
 
 

@@ -96,7 +96,7 @@ export function ModelSetup({ onDone }: { onDone: () => void }) {
   const { data: models } = useModels(true);
   const { data: status } = useStatus();
   const accelerator = status?.engine.accelerator;
-  const voiceModels = (models ?? []).filter((m) => m.kind === "tts");
+  const voiceModels = (models ?? []).filter((m) => m.kind === "tts" && m.capability === "clone");
   // One choice per tier: on Macs the 8-bit variant stays in Settings for those who want it.
   const choices = (["lightweight", "quality"] as const)
     .map((tier) => voiceModels.find((m) => m.tier === tier && m.quantization === "bf16"))

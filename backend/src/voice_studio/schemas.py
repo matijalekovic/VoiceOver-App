@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 JobStatus = Literal[
     "queued", "loading", "synthesizing", "processing", "completed", "failed", "cancelled"
 ]
 ExportFormat = Literal["wav", "mp3"]
+# A voice is either cloned from recordings ("clone") or designed from a written
+# description ("design").
+VoiceMode = Literal["clone", "design"]
 
 
 class Model(BaseModel):
@@ -47,7 +50,22 @@ class VoiceCreate(Model):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
     language: str
-    consent: Consent
+    mode: VoiceMode = "clone"
+    instructions: str = Field(
+        default="",
+        max_length=1000,
+        description="How a designed voice should sound: age, pitch, timbre, pace, mood, use.",
+    )
+    # Cloning needs the speaker's permission; a designed voice has no speaker to consent.
+    consent: Consent | None = None
+
+    @model_validator(mode="after")
+    def check_mode(self) -> VoiceCreate:
+        if self.mode == "clone" and self.consent is None:
+            raise ValueError("Cloning a voice requires the speaker's permission.")
+        if self.mode == "design" and not self.instructions.strip():
+            raise ValueError("Describe the voice you want to design.")
+        return self
 
 
 class VoiceUpdate(Model):
@@ -57,6 +75,7 @@ class VoiceUpdate(Model):
     status: Literal["draft", "ready"] | None = None
     primary_reference_id: str | None = None
     preferred_sample_generation_id: str | None = None
+    instructions: str | None = Field(default=None, max_length=1000)
     consent: Consent | None = None
     style: Style | None = None
 
@@ -124,6 +143,10 @@ class VoiceBuild(Model):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
 
 
+class SampleChoice(Model):
+    generation_id: str
+
+
 class ReferenceUpdate(Model):
     transcript: str | None = Field(default=None, max_length=5000)
     language: str | None = None
@@ -136,6 +159,8 @@ class Voice(Model):
     name: str
     description: str
     language: str
+    mode: VoiceMode = "clone"
+    instructions: str = ""
     status: Literal["draft", "ready"]
     primary_reference_id: str | None
     preferred_sample_generation_id: str | None

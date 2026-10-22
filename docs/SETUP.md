@@ -38,9 +38,13 @@ Pick one (you can add the others later):
 
 | Model id | Use | Download |
 |---|---|---|
-| `qwen3-tts-1.7b-base-bf16` | primary, quality | ~4.5 GB |
-| `qwen3-tts-1.7b-base-8bit` | quantised; compare with bf16 first | ~2.5 GB |
-| `qwen3-tts-0.6b-base-bf16` | lightweight fallback | ~2 GB |
+| `qwen3-tts-1.7b-base-bf16` | cloning, primary, quality | ~4.5 GB |
+| `qwen3-tts-1.7b-base-8bit` | cloning, quantised; compare with bf16 first | ~2.5 GB |
+| `qwen3-tts-0.6b-base-bf16` | cloning, lightweight fallback | ~2 GB |
+| `qwen3-tts-1.7b-voice-design-bf16` | designing a new voice from a description | ~4.5 GB |
+
+Cloning and designing use different checkpoints; the app selects the right one from the voice you
+pick, and offers the Voice Design download when you design your first voice.
 
 Any of these works:
 

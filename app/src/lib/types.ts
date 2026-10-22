@@ -81,11 +81,17 @@ export interface Consent {
   recorded_at?: string;
 }
 
+/** A voice is cloned from recordings ("clone") or designed from a description ("design"). */
+export type VoiceMode = "clone" | "design";
+
 export interface Voice {
   id: string;
   name: string;
   description: string;
   language: string;
+  mode: VoiceMode;
+  /** How a designed voice should sound; empty for cloned voices. */
+  instructions: string;
   status: "draft" | "ready";
   primary_reference_id: string | null;
   preferred_sample_generation_id: string | null;
@@ -219,8 +225,10 @@ export interface ModelEntry {
   id: string;
   label: string;
   repo_id: string;
-  tier: "quality" | "lightweight" | "speech recognition";
+  tier: "quality" | "lightweight" | "design" | "speech recognition";
   kind: "tts" | "stt";
+  /** "clone" checkpoints clone recordings; "design" checkpoints build a voice from text. */
+  capability: "clone" | "design";
   parameters: string;
   quantization: string;
   approx_download_gb: number;

@@ -97,7 +97,9 @@ function VoiceCard({ voice, onDelete }: { voice: Voice; onDelete: (v: Voice) => 
           <Link to={`/voices/${voice.id}`} className="block truncate font-semibold hover:underline">
             {voice.name}
           </Link>
-          <p className="truncate text-xs text-ink-3">{voice.description || `Speaker: ${voice.consent.speaker}`}</p>
+          <p className="truncate text-xs text-ink-3">
+            {voice.description || (voice.mode === "design" ? "Synthetic voice, designed from a description" : `Speaker: ${voice.consent.speaker}`)}
+          </p>
         </div>
         <DropdownMenu>
           <DropdownTrigger asChild>
@@ -124,6 +126,7 @@ function VoiceCard({ voice, onDelete }: { voice: Voice; onDelete: (v: Voice) => 
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-1.5">
         {voice.status === "draft" ? <Badge tone="amber">Draft</Badge> : <Badge tone="green">Ready</Badge>}
+        {voice.mode === "design" ? <Badge tone="blue">Designed</Badge> : null}
         <Badge>{languageLabel(voice.language)}</Badge>
         {primary && <Badge>{formatDuration(primary.duration_s)} reference</Badge>}
       </div>
@@ -161,7 +164,7 @@ export function Voices() {
     <>
       <PageHeader
         title="Voices"
-        description="Voice profiles cloned from authorised recordings. They stay on this Mac."
+        description="Voices cloned from authorised recordings or designed from a description. They stay on this Mac."
         actions={
           <>
             <input
@@ -180,7 +183,7 @@ export function Voices() {
             </Button>
             <Button asChild size="sm">
               <Link to="/voices/new">
-                <Plus /> Clone voice
+                <Plus /> Create voice
               </Link>
             </Button>
           </>
@@ -204,11 +207,11 @@ export function Voices() {
           title="No voices yet"
           action={
             <Button asChild>
-              <Link to="/voices/new">Clone your first voice</Link>
+              <Link to="/voices/new">Create your first voice</Link>
             </Button>
           }
         >
-          A voice is cloned from up to 3 minutes of clean speech; Voice Studio picks the best clip from it.
+          Clone a speaker from up to 3 minutes of clean speech, or design a new voice from a written description.
         </EmptyState>
       )}
       <DeleteVoiceDialog voice={deleting} onClose={() => setDeleting(null)} />

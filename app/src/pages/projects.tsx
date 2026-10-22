@@ -25,7 +25,9 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const [segmentation, setSegmentation] = useState<"paragraph" | "sentence">("paragraph");
   const [busy, setBusy] = useState(false);
 
-  const preferredModelId = usePreferredModelId();
+  const selectedVoice = voices?.find((v) => v.id === voiceId);
+  const capability = selectedVoice?.mode ?? "clone";
+  const preferredModelId = usePreferredModelId(capability);
   useEffect(() => {
     if (!modelId && preferredModelId) setModelId(preferredModelId);
   }, [modelId, preferredModelId]);
@@ -81,6 +83,8 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
                 setVoiceId(id);
                 const v = voices?.find((x) => x.id === id);
                 if (v) setLanguage(v.language);
+                // The model follows the voice's mode; cloning and design use different checkpoints.
+                setModelId(null);
               }}
             />
           </Field>
@@ -88,7 +92,7 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             <LanguagePicker value={language} onChange={setLanguage} />
           </Field>
           <Field label="Model">
-            <ModelPicker value={modelId} onChange={setModelId} />
+            <ModelPicker value={modelId} onChange={setModelId} capability={capability} />
           </Field>
         </div>
         <Field label="Script" hint="Blank lines separate paragraphs; a longer pause is placed after each paragraph.">

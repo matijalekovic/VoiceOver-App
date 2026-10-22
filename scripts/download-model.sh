@@ -4,7 +4,8 @@
 #   qwen3-tts-1.7b-base-bf16   (default, quality)
 #   qwen3-tts-1.7b-base-8bit   (quantised; compare with bf16 before relying on it)
 #   qwen3-tts-0.6b-base-bf16   (lightweight)
-#   whisper-large-v3-turbo     (speech recognition, used when creating a voice)
+#   qwen3-tts-1.7b-voice-design-bf16 (designs a new voice from a description)
+#   whisper-large-v3-turbo     (speech recognition, used when cloning a voice)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,6 +14,7 @@ case "$MODEL" in
   qwen3-tts-1.7b-base-bf16) REPO="mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16" ;;
   qwen3-tts-1.7b-base-8bit) REPO="mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit" ;;
   qwen3-tts-0.6b-base-bf16) REPO="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16" ;;
+  qwen3-tts-1.7b-voice-design-bf16) REPO="mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16" ;;
   whisper-large-v3-turbo) REPO="mlx-community/whisper-large-v3-turbo-asr-fp16" ;;
   *) echo "Unknown model id: $MODEL" >&2; exit 1 ;;
 esac

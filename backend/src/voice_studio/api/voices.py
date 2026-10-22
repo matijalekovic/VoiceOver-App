@@ -20,14 +20,18 @@ def _resolve_language(language: str | None, fallback: str) -> str:
     return (language or fallback).lower()
 
 
-def _require_installed(studio: Studio, model_id: str) -> None:
-    """Fail at submit time, not after the job has transcribed and cut clips."""
-    spec = studio.models.voice_spec(model_id)
+def _model_for(studio: Studio, mode: str, requested: str | None) -> str:
+    """The checkpoint this voice needs, failing at submit time rather than inside the job."""
+    model_id = requested or studio.models.default_model_for(
+        mode, studio.pref("default_model_id")
+    )
+    spec = studio.models.spec_for_mode(mode, model_id)
     if not studio.models.is_installed(model_id):
         raise StudioError(
             "model_not_installed",
             f"{spec.label} is not installed. Pick an installed model or download it in Settings → Models.",
         )
+    return model_id
 
 
 @router.get("", response_model=list[schemas.Voice])
@@ -38,7 +42,12 @@ def list_voices(studio: Studio = Depends(get_studio)):
 @router.post("", response_model=schemas.Voice, status_code=201)
 def create_voice(body: schemas.VoiceCreate, studio: Studio = Depends(get_studio)):
     return VoiceService(studio).create(
-        body.name, body.description, body.language.lower(), body.consent.model_dump()
+        body.name,
+        body.description,
+        body.language.lower(),
+        body.consent.model_dump() if body.consent else None,
+        mode=body.mode,
+        instructions=body.instructions,
     )
 
 
@@ -120,15 +129,16 @@ def reference_audio(
 def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(get_studio)):
     service = VoiceService(studio)
     voice = service.get(voice_id)
-    clone = service.clone_reference(voice_id, body.reference_id)
-    model_id = body.model_id or studio.pref("default_model_id")
-    _require_installed(studio, model_id)
+    origin = {"voice_id": voice_id}
+    if voice["mode"] == "clone":
+        clone = service.clone_reference(voice_id, body.reference_id)
+        origin["reference_id"] = clone["reference_id"]
+    model_id = _model_for(studio, voice["mode"], body.model_id)
     job = studio.jobs.submit(
         "voice_test",
         {
             "text": body.text,
-            "voice_id": voice_id,
-            "reference_id": clone["reference_id"],
+            **origin,
             "language": _resolve_language(body.language, voice["language"]),
             "model_id": model_id,
             "style": body.style.model_dump() if body.style else None,
@@ -147,12 +157,15 @@ def export_voice(voice_id: str, studio: Studio = Depends(get_studio)):
 
 @router.post("/{voice_id}/create", response_model=schemas.JobRef, status_code=202)
 def build_voice(voice_id: str, body: schemas.VoiceBuild, studio: Studio = Depends(get_studio)):
-    """Transcribe the recordings, cut candidate clips and voice a demo with each."""
+    """Clone: transcribe the recordings, cut clips and voice a demo with each.
+    Design: voice three takes from the description for the user to compare."""
     voice = VoiceService(studio).get(voice_id)
-    if not voice["references"]:
+    if voice["mode"] == "design":
+        if not voice["instructions"].strip():
+            raise StudioError("instructions_required", "Describe the voice before creating it.")
+    elif not voice["references"]:
         raise StudioError("reference_required", "Add at least one recording first.")
-    model_id = body.model_id or studio.pref("default_model_id")
-    _require_installed(studio, model_id)
+    model_id = _model_for(studio, voice["mode"], body.model_id)
     job = studio.jobs.submit(
         "voice_create",
         {
@@ -189,8 +202,7 @@ def clip_demo(
     service = VoiceService(studio)
     voice = service.get(voice_id)
     service.clip_row(voice_id, clip_id)
-    model_id = body.model_id or studio.pref("default_model_id")
-    _require_installed(studio, model_id)
+    model_id = _model_for(studio, "clone", body.model_id)
     language = _resolve_language(body.language, voice["language"])
     job = studio.jobs.submit(
         "voice_test",
@@ -211,3 +223,11 @@ def clip_demo(
 @router.post("/{voice_id}/clips/{clip_id}/choose", response_model=schemas.Voice)
 def choose_clip(voice_id: str, clip_id: str, studio: Studio = Depends(get_studio)):
     return VoiceService(studio).choose_clip(voice_id, clip_id)
+
+
+@router.post("/{voice_id}/sample", response_model=schemas.Voice)
+def choose_sample(
+    voice_id: str, body: schemas.SampleChoice, studio: Studio = Depends(get_studio)
+):
+    """Save a designed voice with the take the user picked as its preview."""
+    return VoiceService(studio).choose_sample(voice_id, body.generation_id)

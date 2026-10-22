@@ -63,15 +63,18 @@ export function useSettings() {
 }
 
 /**
- * The voice model a picker should start on: the default if it is installed, otherwise the
- * first installed one (so nothing starts on a model that would fail). Null while loading.
+ * The voice model a picker should start on: the default if it fits the voice's mode, then
+ * the first installed one, then the first matching catalog entry (so the picker can say
+ * what needs downloading instead of showing nothing). Null while loading.
  */
-export function usePreferredModelId(): string | null {
+export function usePreferredModelId(capability: "clone" | "design" = "clone"): string | null {
   const { data: settings } = useSettings();
   const { data: models } = useModels();
   if (!settings || !models) return null;
-  const installed = models.filter((m) => m.kind === "tts" && m.status.state === "installed");
-  return (installed.find((m) => m.id === settings.default_model_id) ?? installed[0])?.id ?? settings.default_model_id;
+  const matching = models.filter((m) => m.kind === "tts" && m.capability === capability);
+  const installed = matching.filter((m) => m.status.state === "installed");
+  const preferred = matching.find((m) => m.id === settings.default_model_id);
+  return (installed.find((m) => m.id === preferred?.id) ?? installed[0] ?? preferred ?? matching[0])?.id ?? null;
 }
 
 export function errorMessage(err: unknown): string {

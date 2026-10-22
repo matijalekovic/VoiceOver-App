@@ -34,10 +34,13 @@ class CloneReference:
 class ChunkRequest:
     text: str
     language: str
-    reference: CloneReference
+    # A cloning reference. None for a designed voice, which is described by `instructions`.
+    reference: CloneReference | None = None
     seed: int | None = None
     temperature: float | None = None  # sampling; None keeps the engine's default
     top_p: float | None = None
+    # The written description a Voice Design checkpoint turns into a voice.
+    instructions: str | None = None
 
 
 class TTSEngine(Protocol):
@@ -46,7 +49,8 @@ class TTSEngine(Protocol):
     def load(self, model_dir: Path) -> EngineInfo: ...
 
     def synthesize(self, request: ChunkRequest) -> np.ndarray:
-        """Return float32 mono audio at EngineInfo.sample_rate for one chunk of text."""
+        """Return float32 mono audio at EngineInfo.sample_rate for one chunk of text.
+        """
         ...
 
     def memory(self) -> dict:

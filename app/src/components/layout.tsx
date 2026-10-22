@@ -115,7 +115,7 @@ function useFirstRunSetup(): [boolean, () => void] {
   const { data: models } = useModels();
   const [open, setOpen] = useState<boolean | null>(null);
   useEffect(() => {
-    if (open === null && models) setOpen(!models.some((m) => m.kind === "tts" && m.status.state === "installed"));
+    if (open === null && models) setOpen(!models.some((m) => m.kind === "tts" && m.capability === "clone" && m.status.state === "installed"));
   }, [open, models]);
   return [!!open, () => setOpen(false)];
 }

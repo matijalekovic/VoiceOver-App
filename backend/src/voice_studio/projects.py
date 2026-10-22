@@ -84,6 +84,22 @@ class ProjectService:
         }
 
     # -- writing ---------------------------------------------------------------
+    def _model_for(self, voice_id: str | None, model_id: str | None) -> str:
+        """Keep the project's checkpoint compatible with how its voice was made."""
+        mode = "clone"
+        if voice_id:
+            from .voices import VoiceService
+
+            voice = VoiceService(self.studio).get(voice_id)
+            mode = voice["mode"]
+            if mode == "design" and not voice["instructions"].strip():
+                raise StudioError("instructions_required", "Describe the voice before using it.")
+        chosen = model_id or self.studio.models.default_model_for(
+            mode, self.studio.pref("default_model_id")
+        )
+        self.studio.models.spec_for_mode(mode, chosen)
+        return chosen
+
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
         if len(data.get("script", "")) > self.studio.settings.max_script_chars:
             raise StudioError(
@@ -91,8 +107,7 @@ class ProjectService:
             )
         project_id = new_id()
         stamp = now_iso()
-        model_id = data.get("model_id") or self.studio.pref("default_model_id")
-        self.studio.models.voice_spec(model_id)
+        model_id = self._model_for(data.get("voice_id"), data.get("model_id"))
         self.db.execute(
             "INSERT INTO projects (id, name, script, voice_id, language, model_id, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -106,10 +121,15 @@ class ProjectService:
         return self.get(project_id)
 
     def update(self, project_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-        self.get(project_id)
+        project = self.get(project_id)
         fields = {k: v for k, v in patch.items() if v is not None}
-        if "model_id" in fields:
-            self.studio.models.voice_spec(fields["model_id"])
+        if "voice_id" in fields or "model_id" in fields:
+            voice_id = fields.get("voice_id", project["voice_id"])
+            requested = fields.get("model_id")
+            # Changing only the voice lets its mode pick a compatible checkpoint.
+            if requested is None and "voice_id" not in fields:
+                requested = project["model_id"]
+            fields["model_id"] = self._model_for(voice_id, requested)
         if fields:
             fields["updated_at"] = now_iso()
             assignments = ", ".join(f"{k} = ?" for k in fields)
@@ -255,9 +275,17 @@ class ProjectService:
             raise StudioError("voice_required", "Choose a voice for the project first.")
         from .voices import VoiceService
 
-        VoiceService(self.studio).clone_reference(
-            project["voice_id"], None
-        )  # fail early if unusable
+        voice = VoiceService(self.studio).get(project["voice_id"])
+        if voice["mode"] == "design":
+            if not voice["instructions"].strip():
+                raise StudioError(
+                    "instructions_required", "Describe the voice before generating the project."
+                )
+        else:
+            VoiceService(self.studio).clone_reference(
+                project["voice_id"], None
+            )  # fail early if unusable
+        self.studio.models.spec_for_mode(voice["mode"], project["model_id"])
         if not self.studio.models.is_installed(project["model_id"]):
             raise StudioError(
                 "model_not_installed",

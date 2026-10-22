@@ -79,7 +79,9 @@ export const api = {
     name: string;
     description: string;
     language: string;
-    consent: { confirmed: boolean; speaker: string; scope: string; notes: string };
+    mode?: "clone" | "design";
+    instructions?: string;
+    consent?: { confirmed: boolean; speaker: string; scope: string; notes: string };
   }) => post<Voice>("/api/voices", body),
   updateVoice: (id: string, body: Partial<Omit<Voice, "style">> & { consent?: Voice["consent"]; style?: Partial<Style> }) =>
     patch<Voice>(`/api/voices/${id}`, body),
@@ -105,8 +107,10 @@ export const api = {
     body: { text: string; language?: string; model_id?: string; reference_id?: string; style?: Partial<Style> },
   ) =>
     post<JobRef>(`/api/voices/${voiceId}/test`, body),
-  buildVoice: (voiceId: string, body: { model_id?: string; language?: string; text?: string }) =>
+  buildVoice: (voiceId: string, body: { model_id?: string; language?: string; text?: string; seed?: number }) =>
     post<JobRef>(`/api/voices/${voiceId}/create`, body),
+  chooseSample: (voiceId: string, generationId: string) =>
+    post<Voice>(`/api/voices/${voiceId}/sample`, { generation_id: generationId }),
   clipAudioUrl: (voiceId: string, clipId: string) => mediaUrl(`/api/voices/${voiceId}/clips/${clipId}/audio`),
   updateClip: (voiceId: string, clipId: string, body: { transcript?: string; name?: string; kept?: boolean }) =>
     patch<Clip>(`/api/voices/${voiceId}/clips/${clipId}`, body),

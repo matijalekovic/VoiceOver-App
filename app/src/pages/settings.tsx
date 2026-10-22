@@ -58,7 +58,13 @@ function ModelRow({ model, isDefault, onDefault }: { model: ModelEntry; isDefaul
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-medium">{model.label}</p>
             <Badge tone={model.tier === "quality" ? "ink" : model.kind === "stt" ? "blue" : "neutral"}>
-              {model.kind === "stt" ? "Speech recognition" : model.tier === "quality" ? "Quality" : "Lightweight"}
+              {model.kind === "stt"
+                ? "Speech recognition"
+                : model.tier === "design"
+                  ? "Voice Design"
+                  : model.tier === "quality"
+                    ? "Quality"
+                    : "Lightweight"}
             </Badge>
             {model.loaded && <Badge tone="green">Loaded</Badge>}
             {isDefault && <Badge tone="blue">Default</Badge>}
@@ -71,7 +77,7 @@ function ModelRow({ model, isDefault, onDefault }: { model: ModelEntry; isDefaul
         <div className="flex flex-wrap items-center gap-2">
           {s.state === "installed" && (
             <>
-              {!isDefault && model.kind === "tts" && (
+              {!isDefault && model.kind === "tts" && model.capability === "clone" && (
                 <Button size="sm" variant="ghost" onClick={onDefault}>
                   Make default
                 </Button>

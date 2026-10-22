@@ -24,6 +24,15 @@ PyTorch; mlx-audio's documented path uses the MLX conversions
 `mlx-community/Qwen3-TTS-12Hz-{1.7B,0.6B}-Base-bf16` (and `-8bit`). The 8-bit 1.7B model is in
 the catalog but labelled for comparison first, as the spec asks.
 
+**Designed voices use the Voice Design checkpoint, not Base.** Qwen3-TTS Base only clones from
+`ref_audio` + `ref_text`; a description-only voice is the separate
+`Qwen3-TTS-12Hz-1.7B-VoiceDesign` checkpoint, whose `instruct` field is a natural-language voice
+description. The catalog records each checkpoint's `capability` (`clone` or `design`), the API
+refuses to run a voice on the wrong one, and the UI filters model pickers by the voice's mode. A
+designed profile stores its description instead of recordings; three takes are generated from
+different seeds so the user can pick one, and that choice becomes the voice's preview. CustomVoice
+checkpoints remain unsupported because they only apply style to a fixed preset speaker.
+
 **FFmpeg from the `imageio-ffmpeg` wheel.** A static FFmpeg (with LAME for MP3) arrives with the
 Python dependencies, so the installed app does not depend on Homebrew. `VOICE_STUDIO_FFMPEG`
 overrides it.

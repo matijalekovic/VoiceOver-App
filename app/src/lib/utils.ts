@@ -71,3 +71,13 @@ export const SAMPLE_LINES: Record<string, string> = {
   italian: "Ciao, questa è una breve prova della mia voce clonata. Come ti sembra?",
   portuguese: "Olá, este é um breve teste da minha voz clonada. O que acha?",
 };
+
+/** The same idea for synthetic voices, which are not cloned from anyone. */
+export const DESIGN_SAMPLE_LINES: Record<string, string> = {
+  english: "Hello, this is a short test of my designed voice. How does it sound to you?",
+  french: "Bonjour, ceci est un court essai de ma voix conçue. Qu'en pensez-vous ?",
+  spanish: "Hola, esta es una breve prueba de mi voz diseñada. ¿Qué te parece?",
+  german: "Hallo, das ist ein kurzer Test meiner gestalteten Stimme. Wie klingt sie?",
+  italian: "Ciao, questa è una breve prova della mia voce progettata. Come ti sembra?",
+  portuguese: "Olá, este é um breve teste da minha voz criada. O que acha?",
+};
