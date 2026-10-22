@@ -443,16 +443,41 @@ fn health_ok(port: u16, token: &str) -> bool {
 }
 
 /// Changes whenever the bundled backend or its locked dependencies change.
+/// Changes whenever anything in the bundled backend changes: its locked dependencies and
+/// its own source. The source is installed into the runtime (non-editable), so an app update
+/// that only changes Python code must reinstall it too, or the old code keeps running.
 fn runtime_stamp(resources: &Path) -> Result<String, String> {
-    let mut hash: u64 = 0xcbf29ce484222325; // FNV-1a
-    for name in ["pyproject.toml", "uv.lock", ".python-version"] {
-        let bytes = fs::read(resources.join(name)).map_err(|e| format!("{name}: {e}"))?;
+    let mut files = Vec::new();
+    collect_files(resources, &mut files).map_err(|e| format!("backend: {e}"))?;
+    files.sort();
+    let mut hash: u64 = 0xcbf29ce484222325; // FNV-1a over each path and its contents
+    let mut feed = |bytes: &[u8]| {
         for b in bytes {
-            hash ^= b as u64;
+            hash ^= *b as u64;
             hash = hash.wrapping_mul(0x100000001b3);
         }
+    };
+    for path in &files {
+        let relative = path.strip_prefix(resources).unwrap_or(path);
+        feed(relative.to_string_lossy().replace('\\', "/").as_bytes());
+        feed(&fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?);
     }
     Ok(format!("{}-{hash:016x}", env!("CARGO_PKG_VERSION")))
+}
+
+fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            if path.file_name().is_some_and(|n| n == "__pycache__") {
+                continue;
+            }
+            collect_files(&path, out)?;
+        } else {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 const UV_EXE: &str = if cfg!(windows) { "uv.exe" } else { "uv" };
