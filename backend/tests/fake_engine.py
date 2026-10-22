@@ -30,9 +30,9 @@ class FakeEngine:
 
     def synthesize(self, request: ChunkRequest) -> np.ndarray:
         if "CRASH" in request.text:
-            os.kill(
-                os.getpid(), signal.SIGKILL
-            )  # what macOS does to a process using too much memory
+            # What macOS does to a process using too much memory. Windows has no SIGKILL;
+            # os.kill there always ends the process with TerminateProcess.
+            os.kill(os.getpid(), getattr(signal, "SIGKILL", signal.SIGTERM))
         if self.delay:
             time.sleep(self.delay)
         seconds = 0.2 + 0.02 * len(request.text)
