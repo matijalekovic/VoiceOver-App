@@ -2,6 +2,7 @@ import { getConnection } from "./backend";
 import type {
   Clip,
   Draft,
+  Estimate,
   ExportResult,
   Generation,
   Job,
@@ -104,7 +105,14 @@ export const api = {
     mediaUrl(`/api/voices/${voiceId}/references/${refId}/audio?which=${which}`, version),
   testVoice: (
     voiceId: string,
-    body: { text: string; language?: string; model_id?: string; reference_id?: string; style?: Partial<Style> },
+    body: {
+      text: string;
+      language?: string;
+      model_id?: string;
+      reference_id?: string;
+      style?: Partial<Style>;
+      tone?: string;
+    },
   ) =>
     post<JobRef>(`/api/voices/${voiceId}/test`, body),
   buildVoice: (voiceId: string, body: { model_id?: string; language?: string; text?: string; seed?: number }) =>
@@ -117,6 +125,10 @@ export const api = {
   clipDemo: (voiceId: string, clipId: string, body: { model_id?: string; language?: string }) =>
     post<JobRef>(`/api/voices/${voiceId}/clips/${clipId}/demo`, body),
   chooseClip: (voiceId: string, clipId: string) => post<Voice>(`/api/voices/${voiceId}/clips/${clipId}/choose`),
+  addLanguage: (voiceId: string, body: { language: string; model_id?: string }) =>
+    post<JobRef>(`/api/voices/${voiceId}/languages`, body),
+  deleteLanguage: (voiceId: string, language: string) =>
+    del<void>(`/api/voices/${voiceId}/languages/${language}`),
   exportVoice: (voiceId: string) => post<ExportResult>(`/api/voices/${voiceId}/export`),
   importVoice: (file: File) => {
     const form = new FormData();
@@ -125,6 +137,7 @@ export const api = {
   },
 
   // generation and jobs
+  estimate: (body: { voice_id: string; text: string; language: string }) => post<Estimate>("/api/estimate", body),
   generate: (body: {
     text: string;
     voice_id: string;
@@ -133,6 +146,8 @@ export const api = {
     seed?: number;
     clip_id?: string;
     style?: Partial<Style>;
+    tone?: string;
+    target_seconds?: number;
   }) =>
     post<JobRef>("/api/generate", body),
   job: (id: string) => get<Job>(`/api/jobs/${id}`),

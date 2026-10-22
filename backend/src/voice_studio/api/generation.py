@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
-from .. import schemas
+from .. import schemas, timing
 from ..db import new_id, now_iso
 from ..errors import NotFound, StudioError
 from ..generations import GenerationService
@@ -32,6 +33,8 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
         "language": body.language.lower(),
         "seed": body.seed,
         "style": body.style.model_dump() if body.style else None,
+        "tone": body.tone,
+        "target_seconds": body.target_seconds,
     }
     if voice["mode"] == "design":
         if not voice["instructions"].strip():
@@ -39,7 +42,9 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
                 "instructions_required", "Describe the voice before generating with it."
             )
     else:
-        clone = service.clone_reference(body.voice_id, body.clip_id)
+        clone = service.clone_reference(
+            body.voice_id, body.clip_id, language=body.language, tone=body.tone
+        )
         payload["reference_id"] = clone["reference_id"]
     model_id = body.model_id or studio.models.default_model_for(
         voice["mode"], studio.pref("default_model_id")
@@ -48,6 +53,24 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
     payload["model_id"] = model_id
     job = studio.jobs.submit("tts", payload, voice_id=body.voice_id)
     return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.post("/estimate", response_model=schemas.Estimate)
+def estimate(body: schemas.EstimateRequest, studio: Studio = Depends(get_studio)):
+    """How long a script will run in this voice, before generating it."""
+    language = body.language.lower()
+    rows = studio.db.all(
+        "SELECT text, duration_s, params_json FROM generations WHERE voice_id = ? AND language = ? "
+        "AND kind IN ('tts', 'voice_test', 'segment') ORDER BY created_at DESC LIMIT 40",
+        (body.voice_id, language),
+    )
+    natural = []
+    for row in rows:  # only takes at normal speed and not fitted say how the voice reads
+        params = json.loads(row["params_json"] or "{}")
+        if abs(params.get("speed", 1.0) - 1.0) < 0.01 and not params.get("target_seconds"):
+            natural.append(row)
+    rate, basis = timing.speaking_rate(natural, language)
+    return {**timing.estimate(body.text, language, rate), "basis": basis}
 
 
 # -- jobs -----------------------------------------------------------------

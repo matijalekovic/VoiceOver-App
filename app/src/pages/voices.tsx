@@ -211,7 +211,7 @@ export function Voices() {
             </Button>
           }
         >
-          Clone a speaker from up to 3 minutes of clean speech, or design a new voice from a written description.
+          Clone a speaker from up to 5 minutes of clean speech, or design a new voice from a written description.
         </EmptyState>
       )}
       <DeleteVoiceDialog voice={deleting} onClose={() => setDeleting(null)} />

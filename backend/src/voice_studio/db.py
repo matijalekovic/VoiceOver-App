@@ -163,6 +163,16 @@ MIGRATIONS: list[str] = [
     ALTER TABLE voices ADD COLUMN mode TEXT NOT NULL DEFAULT 'clone';
     ALTER TABLE voices ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
     """,
+    # 5: a cloned voice's versions in other languages (spoken from its voice fingerprint)
+    """
+    CREATE TABLE voice_languages (
+        voice_id TEXT NOT NULL REFERENCES voices(id) ON DELETE CASCADE,
+        language TEXT NOT NULL,
+        demo_generation_id TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (voice_id, language)
+    );
+    """,
 ]
 
 

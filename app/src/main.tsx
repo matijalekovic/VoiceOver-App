@@ -12,6 +12,7 @@ import { CloneVoice } from "@/pages/clone-voice";
 import { Dashboard } from "@/pages/dashboard";
 import { Generate } from "@/pages/generate";
 import { History } from "@/pages/history";
+import { Library } from "@/pages/library";
 import { ProjectEditor } from "@/pages/project-editor";
 import { Projects } from "@/pages/projects";
 import { Settings } from "@/pages/settings";
@@ -37,6 +38,7 @@ const router = createHashRouter([
       { path: "/projects", element: <Projects /> },
       { path: "/projects/:projectId", element: <ProjectEditor /> },
       { path: "/history", element: <History /> },
+      { path: "/library", element: <Library /> },
       { path: "/settings", element: <Settings /> },
     ],
   },

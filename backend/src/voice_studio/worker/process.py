@@ -109,9 +109,7 @@ def worker_main(
                     raise EngineError("model_not_loaded", "No model is loaded.")
                 out_dir = Path(msg["out_dir"])
                 out_dir.mkdir(parents=True, exist_ok=True)
-                reference = (
-                    CloneReference(**msg["reference"]) if msg.get("reference") else None
-                )
+                reference = CloneReference(**msg["reference"]) if msg.get("reference") else None
                 chunks: list[str] = msg["chunks"]
                 seed = msg.get("seed")
                 seed_step = int(msg.get("seed_step", 1))
