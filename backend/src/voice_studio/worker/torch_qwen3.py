@@ -7,6 +7,7 @@ otherwise on the CPU, which works but is far slower than real time.
 from __future__ import annotations
 
 import json
+import os
 from importlib import metadata
 from pathlib import Path
 
@@ -44,7 +45,8 @@ class TorchQwen3TTSEngine:
                 "wrong_checkpoint",
                 f"This is a Qwen3-TTS {config.get('tts_model_type')} checkpoint. Voice cloning needs a Base checkpoint.",
             )
-        if torch.cuda.is_available():
+        force_cpu = os.environ.get("VOICE_STUDIO_DEVICE") == "cpu"
+        if torch.cuda.is_available() and not force_cpu:
             self._device = "cuda:0"
             dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         else:

@@ -62,6 +62,16 @@ def worker_main(
         format="%(asctime)s %(levelname)s [inference] %(message)s",
     )
     threading.Thread(target=_watch_parent, args=(parent_pid,), daemon=True).start()
+    if os.environ.get("VOICE_STUDIO_DEVICE") == "cpu":
+        # Run on the CPU even where a GPU exists: for machines whose GPU cannot run the
+        # model, such as the virtual GPUs of CI runners. Slow, but correct.
+        from ..platform import USES_MLX
+
+        if USES_MLX:
+            import mlx.core as mx
+
+            mx.set_default_device(mx.cpu)
+        log.info("VOICE_STUDIO_DEVICE=cpu: running inference on the CPU")
 
     import numpy as np
     import soundfile as sf

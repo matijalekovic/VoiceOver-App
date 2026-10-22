@@ -79,7 +79,8 @@ def write_wav(path: Path, audio: np.ndarray, sample_rate: int, subtype: str = "P
 
 
 def _fsync_replace(tmp: Path, dst: Path, mode: int = 0o600) -> None:
-    with open(tmp, "rb") as fh:
+    # Read-write: fsync on a read-only handle fails on Windows (EBADF).
+    with open(tmp, "r+b") as fh:
         os.fsync(fh.fileno())
     os.replace(tmp, dst)
     os.chmod(dst, mode)
