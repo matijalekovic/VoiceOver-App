@@ -21,7 +21,7 @@ export function VoicePicker({
     .map((v) => ({
       value: v.id,
       label: v.name,
-      description: `${languageLabel(v.language)}${v.status === "draft" ? " · draft" : ""}`,
+      description: `${languageLabel(v.language)}${v.mode === "design" ? " · designed" : ""}${v.status === "draft" ? " · draft" : ""}`,
     }));
   return (
     <Select
@@ -68,20 +68,25 @@ export function ModelPicker({
   className,
   id,
   size,
+  capability = "clone",
 }: {
   value: string | null | undefined;
   onChange: (id: string) => void;
   className?: string;
   id?: string;
   size?: "sm" | "md";
+  /** Only show checkpoints that can do this: clone recordings or design from text. */
+  capability?: "clone" | "design";
 }) {
   const { data } = useModels();
-  const options = (data ?? []).filter((m) => m.kind === "tts").map((m) => ({
-    value: m.id,
-    label: `${m.tier === "quality" ? "Quality" : "Lightweight"} · ${m.parameters}${m.quantization !== "bf16" ? ` ${m.quantization}` : ""}`,
-    description:
-      m.status.state === "installed" ? (m.loaded ? "Loaded" : "Installed") : "Not installed — see Settings → Models",
-    disabled: m.status.state !== "installed",
-  }));
+  const options = (data ?? [])
+    .filter((m) => m.kind === "tts" && m.capability === capability)
+    .map((m) => ({
+      value: m.id,
+      label: `${m.tier === "design" ? "Voice Design" : m.tier === "quality" ? "Quality" : "Lightweight"} · ${m.parameters}${m.quantization !== "bf16" ? ` ${m.quantization}` : ""}`,
+      description:
+        m.status.state === "installed" ? (m.loaded ? "Loaded" : "Installed") : "Not installed — see Settings → Models",
+      disabled: m.status.state !== "installed",
+    }));
   return <Select id={id} size={size} className={className} value={value ?? undefined} onValueChange={onChange} options={options} />;
 }

@@ -138,7 +138,7 @@ export function Dashboard() {
     <>
       <div className="mb-8 flex items-center gap-5">
         <Orb size={64} />
-        <PageHeader title={greeting()} description="Clone authorised voices and produce voiceovers, entirely on this Mac." />
+        <PageHeader title={greeting()} description="Clone an authorised voice or design a new one, then produce voiceovers entirely on this Mac." />
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -150,8 +150,8 @@ export function Dashboard() {
                 <Step done={modelReady} title="Install a voice model" to="/settings?tab=models" cta="Models">
                   Download Qwen3-TTS 1.7B Base (about 4.5 GB) once. After that everything runs offline.
                 </Step>
-                <Step done={voiceReady} title="Clone your first voice" to="/voices/new" cta="Clone">
-                  Upload or record up to 3 minutes of clean speech from a speaker who has given permission.
+                <Step done={voiceReady} title="Create your first voice" to="/voices/new" cta="Create">
+                  Clone a consented speaker from a recording, or design a new voice from a written description.
                 </Step>
                 <Step done={generated} title="Generate a voiceover" to="/generate" cta="Generate">
                   Type a script, pick the voice and language, and export WAV or MP3.
@@ -163,7 +163,7 @@ export function Dashboard() {
           <div className="grid gap-3 sm:grid-cols-3">
             {[
               { to: "/generate", icon: AudioLines, title: "Text to speech", text: "Short pieces, one take" },
-              { to: "/voices/new", icon: Mic2, title: "Clone a voice", text: "From a consented recording" },
+              { to: "/voices/new", icon: Mic2, title: "Create a voice", text: "Clone or design" },
               { to: "/projects", icon: FolderKanban, title: "Long-form project", text: "Segments, takes, pauses" },
             ].map(({ to, icon: Icon, title, text }) => (
               <Link key={to} to={to} className="group rounded-2xl border border-rule bg-panel p-4 shadow-card transition-colors hover:bg-panel-2">

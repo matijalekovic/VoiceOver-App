@@ -18,3 +18,6 @@ app/src-tauri/resources/backend/
 # Local outputs
 validation-*/
 .DS_Store
+
+# Local tools
+.freebuff/

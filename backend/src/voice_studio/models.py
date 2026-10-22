@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .catalog import CATALOG, ModelSpec, get_spec
+from .catalog import CATALOG, ModelSpec, design_spec, get_spec
 from .db import now_iso
 from .errors import Conflict, NotFound, StudioError
 
@@ -35,7 +35,7 @@ def dir_size(path: Path) -> int:
 
 
 def validate_model_dir(path: Path, kind: str = "tts") -> list[str]:
-    """Problems that would stop the folder from loading as a Qwen3-TTS Base checkpoint
+    """Problems that would stop the folder from loading as a Qwen3-TTS checkpoint
     (or, for kind "stt", as a Whisper checkpoint)."""
     problems: list[str] = []
     config_path = path / "config.json"
@@ -58,17 +58,20 @@ def validate_model_dir(path: Path, kind: str = "tts") -> list[str]:
             if not (path / name).exists():
                 problems.append(f"{name} is missing")
         return problems
-    if config.get("tts_model_type", "base") != "base":
+    model_type = config.get("tts_model_type", "base")
+    if model_type not in ("base", "voice_design"):
         problems.append(
-            f"this is a {config.get('tts_model_type')} checkpoint; voice cloning needs a Base checkpoint"
+            f"this is a {model_type} checkpoint; Voice Studio needs a Base (cloning) or "
+            "Voice Design checkpoint"
         )
     if not list(path.glob("*.safetensors")):
         problems.append("model weights (*.safetensors) are missing")
     if not ((path / "tokenizer.json").exists() or (path / "vocab.json").exists()):
         problems.append("text tokenizer files are missing")
+    # Both paths decode generated speech; only Base also encodes a reference recording.
     speech = path / "speech_tokenizer"
     if not (speech / "config.json").exists() or not list(speech.glob("*.safetensors")):
-        problems.append("speech_tokenizer/ (needed to encode reference audio) is missing")
+        problems.append("speech_tokenizer/ is missing")
     return problems
 
 
@@ -113,13 +116,51 @@ class ModelManager:
         return spec
 
     def voice_spec(self, model_id: str) -> ModelSpec:
-        """The spec of a model that can clone voices (not the speech recognition one)."""
+        """The spec of a model that can generate voices (not the speech recognition one)."""
         spec = self.spec(model_id)
         if spec.kind != "tts":
             raise StudioError(
                 "not_a_voice_model", f"{spec.label} transcribes speech; it cannot generate voices."
             )
         return spec
+
+    def spec_for_mode(self, mode: str, model_id: str) -> ModelSpec:
+        """Check that a voice model matches how the voice was made: cloning needs Base,
+        designed voices need Voice Design."""
+        spec = self.voice_spec(model_id)
+        wanted = "design" if mode == "design" else "clone"
+        if spec.capability != wanted:
+            raise StudioError(
+                "wrong_model_type",
+                (
+                    f"{spec.label} designs voices from a description; this voice clones a "
+                    "recording. Choose a Base model."
+                    if wanted == "clone"
+                    else f"{spec.label} clones voices from recordings; this voice was designed "
+                    "from a description. Choose the Voice Design model."
+                ),
+            )
+        return spec
+
+    def default_model_for(self, mode: str, preferred: str | None = None) -> str:
+        """The model a voice of this kind should use when the caller did not name one."""
+        if mode == "design":
+            spec = design_spec(self.catalog)
+            if spec is None:
+                raise StudioError(
+                    "design_model_unavailable",
+                    "No Voice Design model is in this build's catalog.",
+                )
+            return spec.id
+        chosen = get_spec(preferred, self.catalog) if preferred else None
+        if chosen and chosen.kind == "tts" and chosen.capability == "clone":
+            return chosen.id
+        clone = next(
+            (s for s in self.catalog if s.kind == "tts" and s.capability == "clone"), None
+        )
+        if clone is None:
+            raise StudioError("no_voice_model", "No voice cloning model is in the catalog.")
+        return clone.id
 
     def model_dir(self, model_id: str) -> Path:
         return self.models_dir / self.spec(model_id).id

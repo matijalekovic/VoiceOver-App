@@ -55,6 +55,7 @@ export function Generate() {
 
   const readyVoices = useMemo(() => (voices ?? []).filter((v) => v.status === "ready"), [voices]);
   const voice = readyVoices.find((v) => v.id === voiceId);
+  const capability = voice?.mode ?? "clone";
 
   useEffect(() => {
     if (!voiceId && readyVoices.length) setVoiceId(readyVoices[0].id);
@@ -70,10 +71,18 @@ export function Generate() {
       setDelivery(deliveryFor(voice));
     }
   }, [voice]);
-  const preferredModelId = usePreferredModelId();
+  const preferredModelId = usePreferredModelId(capability);
   useEffect(() => {
-    if (!modelId && preferredModelId) setModelId(preferredModelId);
-  }, [modelId, preferredModelId]);
+    if (!modelId) {
+      if (preferredModelId) setModelId(preferredModelId);
+      return;
+    }
+    // A designed voice cannot run on a cloning checkpoint (and the reverse).
+    const chosen = models?.find((m) => m.id === modelId);
+    if (chosen && chosen.capability !== capability && preferredModelId) {
+      setModelId(preferredModelId);
+    }
+  }, [modelId, preferredModelId, models, capability]);
 
   const job = useJob(jobId, async (finished) => {
     if (finished.status === "completed" && finished.generation_id) {
@@ -134,7 +143,7 @@ export function Generate() {
     <>
       <PageHeader
         title="Text to Speech"
-        description="Turn text into speech with one of your cloned voices."
+        description="Turn text into speech with a cloned or designed voice."
         actions={
           <DropdownMenu>
             <DropdownTrigger asChild>
@@ -185,7 +194,7 @@ export function Generate() {
 
       {readyVoices.length === 0 && voices && (
         <Callout tone="amber" className="mb-5">
-          You have no ready voices yet. <Link to="/voices/new" className="font-medium underline">Clone a voice</Link> first.
+          You have no ready voices yet. <Link to="/voices/new" className="font-medium underline">Create a voice</Link> first.
         </Callout>
       )}
 
@@ -253,9 +262,13 @@ export function Generate() {
             <Field
               label="Model"
               htmlFor="model"
-              hint="Quality uses 1.7B; lightweight uses 0.6B. Only one model is loaded at a time."
+              hint={
+                capability === "design"
+                  ? "Designed voices run on the Voice Design checkpoint. Only one model is loaded at a time."
+                  : "Quality uses 1.7B; lightweight uses 0.6B. Only one model is loaded at a time."
+              }
             >
-              <ModelPicker id="model" value={modelId} onChange={setModelId} />
+              <ModelPicker id="model" value={modelId} onChange={setModelId} capability={capability} />
             </Field>
             {voice && (
               <div className="border-t border-rule pt-4">

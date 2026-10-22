@@ -50,7 +50,7 @@ import {
 import { Select } from "@/components/ui/select";
 import { Waveform } from "@/components/waveform";
 import { api } from "@/lib/api";
-import { toastError, useSettings } from "@/lib/hooks";
+import { toastError, useSettings, useVoices } from "@/lib/hooks";
 import type { Project, Segment } from "@/lib/types";
 import { cn, formatDate, formatDuration } from "@/lib/utils";
 
@@ -361,6 +361,7 @@ export function ProjectEditor() {
     queryFn: () => api.project(projectId),
     refetchInterval: (q) => (q.state.data?.segments.some((s) => s.job && ACTIVE.has(s.job.status)) ? 1000 : false),
   });
+  const { data: voices } = useVoices();
   const [scriptOpen, setScriptOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -391,6 +392,8 @@ export function ProjectEditor() {
   };
   const running = project.segments.filter((s) => s.job && ACTIVE.has(s.job.status)).length;
   const missing = project.segments.filter((s) => !s.active_generation_id || s.active_take_stale).length;
+  const projectVoice = voices?.find((v) => v.id === project.voice_id);
+  const modelCapability = projectVoice?.mode ?? "clone";
 
   async function generateMissing() {
     try {
@@ -514,7 +517,11 @@ export function ProjectEditor() {
               <LanguagePicker value={project.language} onChange={(language) => void update({ language })} />
             </Field>
             <Field label="Model">
-              <ModelPicker value={project.model_id} onChange={(model_id) => void update({ model_id })} />
+              <ModelPicker
+                value={project.model_id}
+                onChange={(model_id) => void update({ model_id })}
+                capability={modelCapability}
+              />
             </Field>
             <p className="text-xs text-ink-3">Changing these affects segments generated from now on; existing takes stay as they are.</p>
           </Card>

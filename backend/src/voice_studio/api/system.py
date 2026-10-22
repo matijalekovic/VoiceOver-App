@@ -81,7 +81,7 @@ def get_settings(studio: Studio = Depends(get_studio)):
 def update_settings(body: schemas.Preferences, studio: Studio = Depends(get_studio)):
     values = body.model_dump(exclude_unset=True, exclude_none=True)
     if "default_model_id" in values:
-        studio.models.voice_spec(values["default_model_id"])
+        studio.models.spec_for_mode("clone", values["default_model_id"])
     if "output_dir" in values:
         folder = Path(values["output_dir"]).expanduser()
         if not folder.is_absolute():

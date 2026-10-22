@@ -158,6 +158,11 @@ MIGRATIONS: list[str] = [
     ALTER TABLE voice_clips ADD COLUMN name TEXT NOT NULL DEFAULT '';
     ALTER TABLE voice_clips ADD COLUMN kept INTEGER NOT NULL DEFAULT 0;
     """,
+    # 4: voices can be designed from a written description instead of cloned
+    """
+    ALTER TABLE voices ADD COLUMN mode TEXT NOT NULL DEFAULT 'clone';
+    ALTER TABLE voices ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 

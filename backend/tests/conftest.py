@@ -18,6 +18,7 @@ from voice_studio.config import Paths, Settings  # noqa: E402
 
 TOKEN = "test-token"
 FAKE_MODEL = "fake-base"
+FAKE_DESIGN = "fake-design"
 FAKE_STT = "fake-whisper"
 
 
@@ -33,6 +34,18 @@ def fake_catalog() -> list[ModelSpec]:
             approx_download_gb=0,
             approx_memory_gb=0,
             engine="fake_engine:FakeEngine",
+        ),
+        ModelSpec(
+            id=FAKE_DESIGN,
+            label="Fake Voice Design",
+            repo_id="example/fake-design",
+            tier="design",
+            parameters="0",
+            quantization="none",
+            approx_download_gb=0,
+            approx_memory_gb=0,
+            engine="fake_engine:FakeEngine",
+            capability="design",
         ),
         ModelSpec(
             id=FAKE_STT,
@@ -59,9 +72,17 @@ def install_fake_stt(models_dir: Path) -> None:
 
 
 def install_fake_model(models_dir: Path) -> None:
-    folder = models_dir / FAKE_MODEL
+    _install_tts(models_dir, FAKE_MODEL, "base")
+
+
+def install_fake_design_model(models_dir: Path) -> None:
+    _install_tts(models_dir, FAKE_DESIGN, "voice_design")
+
+
+def _install_tts(models_dir: Path, model_id: str, model_type: str) -> None:
+    folder = models_dir / model_id
     (folder / "speech_tokenizer").mkdir(parents=True, exist_ok=True)
-    (folder / "config.json").write_text(json.dumps({"tts_model_type": "base"}))
+    (folder / "config.json").write_text(json.dumps({"tts_model_type": model_type}))
     (folder / "model.safetensors").write_bytes(b"0")
     (folder / "tokenizer.json").write_text("{}")
     (folder / "speech_tokenizer" / "config.json").write_text("{}")
@@ -88,6 +109,7 @@ def client(data_dir: Path, tmp_path: Path, monkeypatch):
         }
     )
     install_fake_model(settings.paths.models)
+    install_fake_design_model(settings.paths.models)
     with TestClient(app, base_url="http://127.0.0.1:8765") as test_client:
         test_client.headers["Authorization"] = f"Bearer {TOKEN}"
         yield test_client

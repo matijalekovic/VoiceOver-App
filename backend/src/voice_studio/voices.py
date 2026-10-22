@@ -124,16 +124,38 @@ class VoiceService:
         }
 
     def create(
-        self, name: str, description: str, language: str, consent: dict[str, Any]
+        self,
+        name: str,
+        description: str,
+        language: str,
+        consent: dict[str, Any] | None,
+        mode: str = "clone",
+        instructions: str = "",
     ) -> dict[str, Any]:
+        if mode not in ("clone", "design"):
+            raise StudioError("invalid_mode", f"Unknown voice mode {mode!r}.")
+        if mode == "design":
+            instructions = instructions.strip()
+            if not instructions:
+                raise StudioError("instructions_required", "Describe the voice you want to design.")
+            # A designed voice does not clone a person, so there is no speaker to consent.
+            consent = consent or {
+                "speaker": "Synthetic voice",
+                "scope": "Designed from a written description; no recording of a person is used.",
+                "notes": "",
+            }
+        elif consent is None:
+            raise StudioError(
+                "consent_required", "Cloning a voice requires the speaker's permission."
+            )
         voice_id = new_id()
         stamp = now_iso()
         self.db.execute(
-            "INSERT INTO voices (id, name, description, language, status, consent_confirmed, consent_speaker, "
-            "consent_scope, consent_notes, consent_recorded_at, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO voices (id, name, description, language, mode, instructions, status, consent_confirmed, "
+            "consent_speaker, consent_scope, consent_notes, consent_recorded_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?, ?, ?, ?, ?)",
             (
-                voice_id, name.strip(), description, language, consent["speaker"].strip(),
+                voice_id, name.strip(), description, language, mode, instructions, consent["speaker"].strip(),
                 consent["scope"].strip(), consent.get("notes", ""), stamp, stamp, stamp,
             ),
         )  # fmt: skip
@@ -161,6 +183,15 @@ class VoiceService:
             if not sample:
                 raise NotFound("Generation", patch["preferred_sample_generation_id"])
             fields["preferred_sample_generation_id"] = patch["preferred_sample_generation_id"]
+        if patch.get("instructions") is not None:
+            if voice["mode"] != "design":
+                raise StudioError(
+                    "wrong_voice_mode", "Only voices designed from a description have instructions."
+                )
+            instructions = patch["instructions"].strip()
+            if not instructions:
+                raise StudioError("instructions_required", "Describe the voice you want to design.")
+            fields["instructions"] = instructions
         if patch.get("style") is not None:
             fields["style_json"] = json.dumps(style.resolve(voice["style"], patch["style"]))
         if patch.get("consent"):
@@ -182,6 +213,10 @@ class VoiceService:
         return self.get(voice_id)
 
     def _check_ready(self, voice: dict[str, Any], primary_id: str | None) -> None:
+        if voice.get("mode") == "design":
+            if not voice["instructions"].strip():
+                raise StudioError("instructions_required", "Describe the voice before saving it.")
+            return
         if voice.get("clip_id"):
             return
         primary_id = primary_id or voice["primary_reference_id"]
@@ -376,6 +411,12 @@ class VoiceService:
         """The recording and transcript a generation clones from: the chosen clip, a given
         clip or recording, or (for voices made before clips) the primary recording."""
         voice = self.get(voice_id)
+        if voice["mode"] == "design":
+            raise StudioError(
+                "wrong_voice_mode",
+                f"“{voice['name']}” was designed from a description, so it has no reference "
+                "recording to clone from.",
+            )
         clip_id = ref_id if any(c["id"] == ref_id for c in voice["clips"]) else None
         if not ref_id and voice["clip_id"]:
             clip_id = voice["clip_id"]
@@ -530,6 +571,26 @@ class VoiceService:
             )
         return self.clip(voice_id, clip_id)
 
+    def choose_sample(self, voice_id: str, generation_id: str) -> dict[str, Any]:
+        """Save a designed voice with the take the user picked as its preview."""
+        voice = self.get(voice_id)
+        if voice["mode"] != "design":
+            raise StudioError(
+                "wrong_voice_mode", "Choose a take only for voices designed from a description."
+            )
+        sample = self.db.one(
+            "SELECT id FROM generations WHERE id = ? AND voice_id = ? AND kind = 'voice_test'",
+            (generation_id, voice_id),
+        )
+        if not sample:
+            raise NotFound("Take", generation_id)
+        self.db.execute(
+            "UPDATE voices SET preferred_sample_generation_id = ?, status = 'ready', updated_at = ? "
+            "WHERE id = ?",
+            (generation_id, now_iso(), voice_id),
+        )
+        return self.get(voice_id)
+
     def choose_clip(self, voice_id: str, clip_id: str) -> dict[str, Any]:
         """Save the voice: from now on it clones from this clip."""
         clip = self.clip_row(voice_id, clip_id)
@@ -587,6 +648,8 @@ class VoiceService:
                     "scope": consent["scope"],
                     "notes": consent.get("notes", ""),
                 },
+                mode=data.get("mode", "clone"),
+                instructions=data.get("instructions", ""),
             )
             primary_new: str | None = None
             for ref in data.get("references", []):

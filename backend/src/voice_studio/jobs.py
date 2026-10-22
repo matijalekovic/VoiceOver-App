@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -302,9 +303,23 @@ class JobRunner:
         payload = job["payload"]
         job_id = job["id"]
         studio = self.studio
-        clone = VoiceService(studio).clone_reference(
-            payload["voice_id"], payload.get("reference_id")
-        )
+        voices = VoiceService(studio)
+        voice = voices.get(payload["voice_id"])
+        mode = voice.get("mode", "clone")
+        reference: dict[str, Any] | None = None
+        instructions: str | None = None
+        reference_id: str | None = None
+        if mode == "design":
+            instructions = voice["instructions"].strip()
+            if not instructions:
+                raise StudioError(
+                    "instructions_required",
+                    f"“{voice['name']}” has no description, so it cannot be generated yet.",
+                )
+        else:
+            clone = voices.clone_reference(payload["voice_id"], payload.get("reference_id"))
+            reference = {"audio_path": clone["audio_path"], "transcript": clone["transcript"]}
+            reference_id = clone["reference_id"]
         if job["kind"] == "segment":
             segment = self.db.one("SELECT * FROM segments WHERE id = ?", (job["segment_id"],))
             if not segment:
@@ -315,7 +330,9 @@ class JobRunner:
         else:
             body = payload["text"]
         model_id = payload["model_id"]
-        delivery = style.resolve(clone["voice"]["style"], payload.get("style"))
+        # Fail before loading the wrong checkpoint: a designed voice cannot run on Base.
+        studio.models.spec_for_mode(mode, model_id)
+        delivery = style.resolve(voice["style"], payload.get("style"))
 
         load = self._load_model(job, model_id)
         self._check_cancel(job_id)
@@ -325,7 +342,14 @@ class JobRunner:
             raise StudioError("empty_text", "There is no text to synthesise.")
         seed = payload.get("seed")
         if seed is None:
-            seed = random.randrange(2**31 - 1)
+            if mode == "design":
+                # The description is the identity, but a stable seed keeps separate segments
+                # of the same designed voice closer together instead of re-rolling each time.
+                seed = zlib.crc32(
+                    f"{voice['id']}:{voice['instructions']}".encode()
+                ) & (2**31 - 1)
+            else:
+                seed = random.randrange(2**31 - 1)
         work_dir = studio.paths.cache / "jobs" / job_id
         last_update = 0.0
 
@@ -360,8 +384,11 @@ class JobRunner:
             {
                 "chunks": [p.text for p in pieces],
                 "language": payload["language"],
-                "reference": {"audio_path": clone["audio_path"], "transcript": clone["transcript"]},
+                "reference": reference,
+                "instructions": instructions,
                 "seed": seed,
+                # One designed voice should not change between chunks of the same take.
+                "seed_step": 0 if mode == "design" else 1,
                 "out_dir": str(work_dir),
                 **style.sampling(delivery["expressiveness"]),
             },
@@ -441,7 +468,7 @@ class JobRunner:
                 "language, model_id, params_json, audio_path, duration_s, sample_rate, stats_json, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    generation_id, job["kind"], payload["voice_id"], clone["voice"]["name"], clone["reference_id"],
+                    generation_id, job["kind"], payload["voice_id"], voice["name"], reference_id,
                     job["project_id"], job["segment_id"], body, payload["language"], model_id,
                     json.dumps(params), studio.paths.relative(target), round(len(combined) / sample_rate, 3),
                     sample_rate, json.dumps(stats), now_iso(),
@@ -463,7 +490,10 @@ class JobRunner:
         return {"generation_id": generation_id, "stats": stats}
 
     def _create_voice(self, job: dict[str, Any]) -> dict[str, Any]:
-        """Transcribe the recordings, cut candidate clips and voice the demo script with each."""
+        """Clone: transcribe the recordings, cut clips and voice a demo with each.
+
+        Design: read the description with a few different seeds, so takes can be compared.
+        """
         from .clips import demo_script, pick_candidates
         from .voices import VoiceService
 
@@ -473,7 +503,10 @@ class JobRunner:
         language = payload["language"]
         models = self.studio.models
         voices = VoiceService(self.studio)
-        references = voices.get(voice_id)["references"]
+        voice = voices.get(voice_id)
+        if voice.get("mode") == "design":
+            return self._design_voice(job, voice)
+        references = voice["references"]
         if not references:
             raise StudioError("reference_required", "Add at least one recording first.")
 
@@ -556,3 +589,61 @@ class JobRunner:
             )
             generation_ids.append(demo["generation_id"])
         return {"clip_ids": [c["id"] for c in clips], "generation_ids": generation_ids}
+
+    # Three takes is enough to hear how a description settles without a long wait.
+    DESIGN_TAKES = 3
+
+    def _design_voice(self, job: dict[str, Any], voice: dict[str, Any]) -> dict[str, Any]:
+        from .clips import demo_script
+
+        payload = job["payload"]
+        language = payload["language"]
+        model_id = payload["model_id"]
+        self.studio.models.spec_for_mode("design", model_id)
+        if not voice["instructions"].strip():
+            raise StudioError("instructions_required", "Describe the voice before creating it.")
+        script = payload.get("text") or demo_script(language)
+        seed = payload.get("seed")
+        if seed is None:
+            seed = random.randrange(2**31 - 1)
+        generation_ids = []
+        for number in range(1, self.DESIGN_TAKES + 1):
+            self._check_cancel(job["id"])
+            take = self._synthesize(
+                {
+                    **job,
+                    "kind": "voice_test",
+                    "payload": {
+                        "text": script,
+                        "voice_id": voice["id"],
+                        "language": language,
+                        "model_id": model_id,
+                        # The same description with different seeds gives variants to compare.
+                        "seed": seed + (number - 1) * 7919,
+                        "progress_extra": {
+                            "step": "design",
+                            "message": f"Designing take {number} of {self.DESIGN_TAKES}",
+                        },
+                    },
+                }
+            )
+            generation_ids.append(take["generation_id"])
+        self._prune_design_takes(voice["id"], generation_ids)
+        return {"generation_ids": generation_ids}
+
+    def _prune_design_takes(self, voice_id: str, keep: list[str]) -> None:
+        """Each round of takes replaces the previous one; the chosen preview stays."""
+        row = self.db.one(
+            "SELECT preferred_sample_generation_id FROM voices WHERE id = ?", (voice_id,)
+        )
+        keep_ids = set(keep)
+        if row and row["preferred_sample_generation_id"]:
+            keep_ids.add(row["preferred_sample_generation_id"])
+        for old in self.db.all(
+            "SELECT id, audio_path FROM generations WHERE voice_id = ? AND kind = 'voice_test'",
+            (voice_id,),
+        ):
+            if old["id"] in keep_ids:
+                continue
+            self.studio.paths.resolve(old["audio_path"]).unlink(missing_ok=True)
+            self.db.execute("DELETE FROM generations WHERE id = ?", (old["id"],))

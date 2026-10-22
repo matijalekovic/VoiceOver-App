@@ -109,9 +109,12 @@ def worker_main(
                     raise EngineError("model_not_loaded", "No model is loaded.")
                 out_dir = Path(msg["out_dir"])
                 out_dir.mkdir(parents=True, exist_ok=True)
-                reference = CloneReference(**msg["reference"])
+                reference = (
+                    CloneReference(**msg["reference"]) if msg.get("reference") else None
+                )
                 chunks: list[str] = msg["chunks"]
                 seed = msg.get("seed")
+                seed_step = int(msg.get("seed_step", 1))
                 engine.reset_peak_memory()
                 started = time.monotonic()
                 files: list[str] = []
@@ -135,9 +138,10 @@ def worker_main(
                             text=text,
                             language=msg["language"],
                             reference=reference,
-                            seed=None if seed is None else seed + index,
+                            seed=None if seed is None else seed + index * seed_step,
                             temperature=msg.get("temperature"),
                             top_p=msg.get("top_p"),
+                            instructions=msg.get("instructions"),
                         )
                     )
                     path = out_dir / f"chunk-{index:04d}.wav"

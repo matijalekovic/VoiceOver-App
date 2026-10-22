@@ -16,7 +16,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Orb } from "@/components/brand";
 import { announceExport } from "@/components/export-menu";
@@ -31,8 +31,16 @@ import { Badge, Callout, Card, Progress, SectionTitle, Skeleton, Tabs } from "@/
 import { Waveform } from "@/components/waveform";
 import { api } from "@/lib/api";
 import { toastError, useJob, useModels, usePreferredModelId } from "@/lib/hooks";
-import type { Clip, Reference, Voice } from "@/lib/types";
-import { cn, formatBytes, formatDate, formatDuration, languageLabel, SAMPLE_LINES } from "@/lib/utils";
+import type { Clip, Generation, Reference, Voice } from "@/lib/types";
+import {
+  cn,
+  DESIGN_SAMPLE_LINES,
+  formatBytes,
+  formatDate,
+  formatDuration,
+  languageLabel,
+  SAMPLE_LINES,
+} from "@/lib/utils";
 import { DeleteVoiceDialog } from "./voices";
 
 /** All of a voice's recordings together; the backend enforces the same limit. */
@@ -453,7 +461,7 @@ function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => 
   const [modelId, setModelId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useJob(jobId, () => onChanged());
-  const preferredModelId = usePreferredModelId();
+  const preferredModelId = usePreferredModelId("clone");
   useEffect(() => {
     if (!modelId && preferredModelId) setModelId(preferredModelId);
   }, [modelId, preferredModelId]);
@@ -487,7 +495,7 @@ function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => 
           <LanguagePicker value={language} onChange={setLanguage} size="sm" />
         </Field>
         <Field label="Model" className="w-56">
-          <ModelPicker value={modelId} onChange={setModelId} size="sm" />
+          <ModelPicker value={modelId} onChange={setModelId} size="sm" capability="clone" />
         </Field>
         <Button className="ml-auto" onClick={create} disabled={!canCreate}>
           <Wand2 /> {voice.clips.length ? "Create new takes" : "Create voice"}
@@ -520,20 +528,23 @@ function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => 
 }
 
 function TryPanel({ voice }: { voice: Voice }) {
-  const [text, setText] = useState(SAMPLE_LINES[voice.language] ?? SAMPLE_LINES.english);
+  const lines = voice.mode === "design" ? DESIGN_SAMPLE_LINES : SAMPLE_LINES;
+  const [text, setText] = useState(lines[voice.language] ?? lines.english);
   const [language, setLanguage] = useState(voice.language);
   const [modelId, setModelId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [latest, setLatest] = useState<string | null>(null);
   const [delivery, setDelivery] = useState<Delivery>(() => deliveryFor(voice));
-  const preferredModelId = usePreferredModelId();
+  const preferredModelId = usePreferredModelId(voice.mode);
   useEffect(() => {
     if (!modelId && preferredModelId) setModelId(preferredModelId);
   }, [modelId, preferredModelId]);
+  const { data: models } = useModels();
   const job = useJob(jobId, (j) => {
     if (j.status === "completed" && j.generation_id) setLatest(j.generation_id);
   });
   const busy = !!job && !["completed", "failed", "cancelled"].includes(job.status);
+  const modelInstalled = models?.find((m) => m.id === modelId)?.status.state === "installed";
 
   async function run() {
     try {
@@ -563,15 +574,218 @@ function TryPanel({ voice }: { voice: Voice }) {
           <LanguagePicker value={language} onChange={setLanguage} size="sm" />
         </Field>
         <Field label="Model" className="w-56">
-          <ModelPicker value={modelId} onChange={setModelId} size="sm" />
+          <ModelPicker value={modelId} onChange={setModelId} size="sm" capability={voice.mode} />
         </Field>
-        <Button className="ml-auto" onClick={run} disabled={busy || !text.trim()}>
+        <Button className="ml-auto" onClick={run} disabled={busy || !text.trim() || !modelInstalled}>
           <Sparkles /> Generate
         </Button>
       </div>
+      {!modelInstalled && models && (
+        <p className="text-xs text-amber">
+          This voice needs its {voice.mode === "design" ? "Voice Design" : "cloning"} model installed. Download it
+          in Settings → Models.
+        </p>
+      )}
       {job && <JobProgress job={job} onRetry={(j) => setJobId(j.id)} />}
       {latest && <Waveform url={api.generationAudioUrl(latest)} autoPlay />}
     </div>
+  );
+}
+
+function DesignTake({
+  voice,
+  take,
+  index,
+  onChosen,
+}: {
+  voice: Voice;
+  take: Generation;
+  index: number;
+  onChosen: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const chosen = voice.preferred_sample_generation_id === take.id;
+
+  async function choose() {
+    setBusy(true);
+    try {
+      await api.chooseSample(voice.id, take.id);
+      onChosen();
+      toast.success(`“${voice.name}” is saved and ready to use`);
+    } catch (err) {
+      toastError(err, "Could not save the take");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={cn("rounded-2xl border bg-panel p-4 shadow-card", chosen ? "border-ink" : "border-rule")}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="font-medium">Take {index + 1}</p>
+        {chosen && <Badge tone="ink">In use</Badge>}
+      </div>
+      <Waveform key={take.id} url={api.generationAudioUrl(take.id)} compact height={48} />
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate whitespace-nowrap text-[12px] text-ink-3">
+          <span className="num">{formatDuration(take.duration_s)}</span> · {formatDate(take.created_at)}
+        </span>
+        <Button size="sm" className="shrink-0" onClick={choose} loading={busy} disabled={chosen}>
+          {chosen ? "Saved" : "Use this voice"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function DesignVoiceCard({
+  voice,
+  initialJobId,
+  onChanged,
+}: {
+  voice: Voice;
+  initialJobId?: string | null;
+  onChanged: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { data: models } = useModels();
+  const [instructions, setInstructions] = useState(voice.instructions);
+  const [language, setLanguage] = useState(voice.language);
+  const [modelId, setModelId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(initialJobId ?? null);
+  const [saving, setSaving] = useState(false);
+  const preferredModelId = usePreferredModelId("design");
+  const designModel = models?.find((m) => m.kind === "tts" && m.capability === "design");
+  const modelReady = designModel?.status.state === "installed";
+  const job = useJob(jobId, () => onChanged());
+  const { data: takes } = useQuery({
+    queryKey: ["generations", "voice", voice.id, "voice_test"],
+    queryFn: () => api.generations({ voice_id: voice.id, kind: "voice_test", limit: 12 }),
+  });
+
+  useEffect(() => setInstructions(voice.instructions), [voice.instructions]);
+  useEffect(() => {
+    // Show the design checkpoint even before it is installed, so the picker says what is missing.
+    const fallback = preferredModelId ?? designModel?.id;
+    if (!modelId && fallback) setModelId(fallback);
+  }, [modelId, preferredModelId, designModel]);
+  useEffect(() => {
+    if (initialJobId) setJobId(initialJobId);
+  }, [initialJobId]);
+
+  const running = !!job && !["completed", "failed", "cancelled"].includes(job.status);
+  const changed = instructions.trim() !== voice.instructions;
+
+  async function saveInstructions() {
+    setSaving(true);
+    try {
+      await api.updateVoice(voice.id, { instructions: instructions.trim() });
+      onChanged();
+      toast.success("Description saved");
+    } catch (err) {
+      toastError(err, "Could not save the description");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createTakes() {
+    try {
+      if (changed) await api.updateVoice(voice.id, { instructions: instructions.trim() });
+      const created = await api.buildVoice(voice.id, {
+        model_id: modelId ?? undefined,
+        language,
+      });
+      setJobId(created.job_id);
+      onChanged();
+    } catch (err) {
+      toastError(err, "Could not create the takes");
+    }
+  }
+
+  // The API returns newest first; takes are easier to compare in the order they were made.
+  const visibleTakes = [...(takes?.items ?? [])].reverse();
+
+  return (
+    <Card className="space-y-5 p-5">
+      <div>
+        <SectionTitle>Voice description</SectionTitle>
+        <p className="-mt-1 mb-3 text-[13.5px] text-ink-2">
+          The Voice Design model reads this description each time it speaks. Edit it, then create new takes to hear the
+          difference.
+        </p>
+        <Textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value.slice(0, 1000))}
+          className="min-h-24"
+          placeholder="A calm, low-pitched adult narrator with a warm, unhurried delivery…"
+        />
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-ink-3">Age, gender, pitch, timbre, pace, mood and intended use.</p>
+          <Button size="sm" variant="outline" onClick={saveInstructions} loading={saving} disabled={!changed || !instructions.trim()}>
+            Save description
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-3 border-t border-rule pt-5">
+        <SectionTitle>Takes</SectionTitle>
+        {designModel && !modelReady && (
+          <Callout tone="amber">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="min-w-0 flex-1">
+                {designModel.status.state === "downloading"
+                  ? `Downloading ${designModel.label} · ${formatBytes(designModel.status.downloaded_bytes ?? 0)}`
+                  : `${designModel.label} is needed to design voices (~${designModel.approx_download_gb} GB).`}
+              </p>
+              {designModel.status.state !== "downloading" && (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    api
+                      .downloadModel(designModel.id)
+                      .then(() => queryClient.invalidateQueries({ queryKey: ["models"] }))
+                      .catch((err) => toastError(err, "Download could not start"))
+                  }
+                >
+                  <Download /> Download
+                </Button>
+              )}
+            </div>
+          </Callout>
+        )}
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Language" className="w-40">
+            <LanguagePicker value={language} onChange={setLanguage} size="sm" />
+          </Field>
+          <Field label="Model" className="w-56">
+            <ModelPicker value={modelId} onChange={setModelId} size="sm" capability="design" />
+          </Field>
+          <Button
+            className="ml-auto"
+            onClick={createTakes}
+            disabled={running || !instructions.trim() || !modelReady}
+          >
+            <Wand2 /> {visibleTakes.length ? "Create 3 new takes" : "Create 3 takes"}
+          </Button>
+        </div>
+        {job && <JobProgress job={job} onRetry={(j) => setJobId(j.id)} />}
+        {visibleTakes.length && !running ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {visibleTakes.map((take, index) => (
+              <DesignTake key={take.id} voice={voice} take={take} index={index} onChosen={onChanged} />
+            ))}
+          </div>
+        ) : (
+          !running && <p className="text-[13px] text-ink-3">No takes yet. Create three and pick the one that fits.</p>
+        )}
+        {voice.status === "ready" && visibleTakes.length > 0 && (
+          <p className="text-xs text-ink-3">
+            New takes replace the previous round; the take in use stays until you pick another.
+          </p>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -582,17 +796,18 @@ function DetailsPanel({ voice, onChanged }: { voice: Voice; onChanged: () => voi
   const [scope, setScope] = useState(voice.consent.scope);
   const [notes, setNotes] = useState(voice.consent.notes);
   const [busy, setBusy] = useState(false);
+  const consentEditable = voice.mode === "clone";
   const changed =
     name !== voice.name ||
     description !== voice.description ||
     language !== voice.language ||
-    scope !== voice.consent.scope ||
-    notes !== voice.consent.notes;
+    (consentEditable && (scope !== voice.consent.scope || notes !== voice.consent.notes));
 
   async function save() {
     setBusy(true);
     try {
-      const consentChanged = scope !== voice.consent.scope || notes !== voice.consent.notes;
+      const consentChanged =
+        consentEditable && (scope !== voice.consent.scope || notes !== voice.consent.notes);
       await api.updateVoice(voice.id, {
         name,
         description,
@@ -619,21 +834,33 @@ function DetailsPanel({ voice, onChanged }: { voice: Voice; onChanged: () => voi
       <Field label="Main language">
         <LanguagePicker value={language} onChange={setLanguage} />
       </Field>
-      <div className="space-y-3 rounded-xl bg-panel-2/60 p-3.5">
-        <p className="flex items-center gap-1.5 text-[13px] font-medium">
-          <ShieldCheck className="size-4" /> Consent record
-        </p>
-        <p className="text-[13px] text-ink-2">
-          Speaker <strong className="text-ink">{voice.consent.speaker}</strong>
-          {voice.consent.recorded_at && <> · recorded {formatDate(voice.consent.recorded_at)}</>}
-        </p>
-        <Field label="Permitted uses">
-          <Input value={scope} onChange={(e) => setScope(e.target.value)} />
-        </Field>
-        <Field label="Notes">
-          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-16" />
-        </Field>
-      </div>
+      {consentEditable ? (
+        <div className="space-y-3 rounded-xl bg-panel-2/60 p-3.5">
+          <p className="flex items-center gap-1.5 text-[13px] font-medium">
+            <ShieldCheck className="size-4" /> Consent record
+          </p>
+          <p className="text-[13px] text-ink-2">
+            Speaker <strong className="text-ink">{voice.consent.speaker}</strong>
+            {voice.consent.recorded_at && <> · recorded {formatDate(voice.consent.recorded_at)}</>}
+          </p>
+          <Field label="Permitted uses">
+            <Input value={scope} onChange={(e) => setScope(e.target.value)} />
+          </Field>
+          <Field label="Notes">
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-16" />
+          </Field>
+        </div>
+      ) : (
+        <div className="space-y-1.5 rounded-xl bg-panel-2/60 p-3.5 text-[13px] text-ink-2">
+          <p className="flex items-center gap-1.5 font-medium text-ink">
+            <Sparkles className="size-4" /> Designed voice
+          </p>
+          <p>
+            Created from a written description. It does not clone a real person, so there is no speaker consent to
+            record.
+          </p>
+        </div>
+      )}
       <div className="flex justify-end">
         <Button size="sm" disabled={!changed} loading={busy} onClick={save}>
           Save details
@@ -646,13 +873,16 @@ function DetailsPanel({ voice, onChanged }: { voice: Voice; onChanged: () => voi
 export function VoiceDetail() {
   const { voiceId = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { data: voice, isLoading, error } = useVoice(voiceId);
   const [deleting, setDeleting] = useState(false);
+  const designJobId = (location.state as { designJobId?: string } | null)?.designJobId;
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["voice", voiceId] });
     void queryClient.invalidateQueries({ queryKey: ["voices"] });
+    void queryClient.invalidateQueries({ queryKey: ["generations", "voice", voiceId] });
   };
 
   if (isLoading) return <Skeleton className="h-96" />;
@@ -668,9 +898,11 @@ export function VoiceDetail() {
           <div className="flex items-center gap-2">
             <h1 className="truncate text-[30px] font-medium leading-tight tracking-[-0.02em]">{voice.name}</h1>
             {voice.status === "draft" ? <Badge tone="amber">Draft</Badge> : <Badge tone="green">Ready</Badge>}
+            {voice.mode === "design" && <Badge tone="blue">Designed</Badge>}
           </div>
           <p className="text-[13.5px] text-ink-2">
-            {languageLabel(voice.language)} · speaker {voice.consent.speaker}
+            {languageLabel(voice.language)} ·{" "}
+            {voice.mode === "design" ? "synthetic voice from a description" : `speaker ${voice.consent.speaker}`}
           </p>
         </div>
         <div className="flex gap-2">
@@ -696,17 +928,32 @@ export function VoiceDetail() {
         <Card className="mb-5 flex flex-wrap items-center gap-x-8 gap-y-2 px-5 py-3.5">
           <span className="text-[13px] font-semibold">To finish</span>
           <ul className="flex flex-wrap gap-x-6 gap-y-1.5">
-            <Check done={total >= 10}>Add recordings (10 s or more)</Check>
-            <Check done={voice.clips.length > 0}>Create the voice</Check>
-            <Check done={!!voice.clip_id}>Pick the take you like</Check>
+            {voice.mode === "design" ? (
+              <>
+                <Check done={!!voice.instructions.trim()}>Describe the voice</Check>
+                <Check done={!!voice.preferred_sample_generation_id}>Pick a take you like</Check>
+              </>
+            ) : (
+              <>
+                <Check done={total >= 10}>Add recordings (10 s or more)</Check>
+                <Check done={voice.clips.length > 0}>Create the voice</Check>
+                <Check done={!!voice.clip_id}>Pick the take you like</Check>
+              </>
+            )}
           </ul>
         </Card>
       )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5">
-          <RecordingsCard voice={voice} onChanged={refresh} />
-          <CreateVoiceCard voice={voice} onChanged={refresh} />
+          {voice.mode === "design" ? (
+            <DesignVoiceCard voice={voice} initialJobId={designJobId} onChanged={refresh} />
+          ) : (
+            <>
+              <RecordingsCard voice={voice} onChanged={refresh} />
+              <CreateVoiceCard voice={voice} onChanged={refresh} />
+            </>
+          )}
           {voice.status === "ready" && (
             <Card className="p-5">
               <SectionTitle>Try the voice</SectionTitle>

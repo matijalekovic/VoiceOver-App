@@ -1,8 +1,9 @@
 """Checkpoints the app knows how to install and run.
 
-Only Qwen3-TTS *Base* checkpoints are listed: they are the ones that clone from reference
-audio. CustomVoice and VoiceDesign checkpoints use a different generation path and are
-rejected when a folder is validated (see models.validate_model_dir). One speech-to-text
+Two kinds of voice checkpoint are listed. Qwen3-TTS *Base* checkpoints clone a voice from
+reference audio; Qwen3-TTS *VoiceDesign* checkpoints create a new synthetic voice from a
+written description. CustomVoice checkpoints are rejected when a folder is validated (see
+models.validate_model_dir): they need a preset speaker and do not clone. One speech-to-text
 checkpoint (kind "stt") transcribes recordings so clips can be cut on word boundaries.
 """
 
@@ -49,14 +50,17 @@ class ModelSpec:
     id: str
     label: str
     repo_id: str
-    tier: str  # "quality" or "lightweight"
+    tier: str  # "quality", "lightweight", "design" or "speech recognition"
     parameters: str
     quantization: str
     approx_download_gb: float
     approx_memory_gb: float  # planning figure, replaced by measurements after validation
     engine: str
     notes: str = ""
-    kind: str = "tts"  # "tts" clones voices; "stt" transcribes recordings
+    kind: str = "tts"  # "tts" generates speech; "stt" transcribes recordings
+    # How a voice checkpoint reaches a voice: "clone" from reference audio, or "design"
+    # a new voice from a written description.
+    capability: str = "clone"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -101,6 +105,19 @@ MLX_CATALOG: list[ModelSpec] = [
         notes="Lightweight mode for lower memory use.",
     ),
     ModelSpec(
+        id="qwen3-tts-1.7b-voice-design-bf16",
+        label="Qwen3-TTS 1.7B Voice Design",
+        repo_id="mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16",
+        tier="design",
+        parameters="1.7B",
+        quantization="bf16",
+        approx_download_gb=4.5,
+        approx_memory_gb=6.0,
+        engine=MLX_QWEN3_ENGINE,
+        notes="Creates a new synthetic voice from a written description. Cannot clone recordings.",
+        capability="design",
+    ),
+    ModelSpec(
         id="whisper-large-v3-turbo",
         label="Whisper large-v3 turbo",
         repo_id="mlx-community/whisper-large-v3-turbo-asr-fp16",
@@ -143,6 +160,19 @@ TORCH_CATALOG: list[ModelSpec] = [
         notes="Lightweight mode for smaller GPUs, and the better choice without one.",
     ),
     ModelSpec(
+        id="qwen3-tts-1.7b-voice-design-bf16",
+        label="Qwen3-TTS 1.7B Voice Design",
+        repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+        tier="design",
+        parameters="1.7B",
+        quantization="bf16",
+        approx_download_gb=4.5,
+        approx_memory_gb=6.0,
+        engine=TORCH_QWEN3_ENGINE,
+        notes="Creates a new synthetic voice from a written description. Cannot clone recordings.",
+        capability="design",
+    ),
+    ModelSpec(
         id="whisper-large-v3-turbo",
         label="Whisper large-v3 turbo",
         repo_id="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
@@ -161,6 +191,7 @@ CATALOG: list[ModelSpec] = MLX_CATALOG if USES_MLX else TORCH_CATALOG
 
 DEFAULT_MODEL_ID = CATALOG[0].id
 STT_MODEL_ID = "whisper-large-v3-turbo"
+DESIGN_MODEL_ID = "qwen3-tts-1.7b-voice-design-bf16"
 
 
 def get_spec(model_id: str, catalog: list[ModelSpec] | None = None) -> ModelSpec | None:
@@ -168,3 +199,11 @@ def get_spec(model_id: str, catalog: list[ModelSpec] | None = None) -> ModelSpec
         if spec.id == model_id:
             return spec
     return None
+
+
+def design_spec(catalog: list[ModelSpec] | None = None) -> ModelSpec | None:
+    """The checkpoint that designs voices from a description, if the catalog has one."""
+    return next(
+        (spec for spec in (catalog if catalog is not None else CATALOG) if spec.capability == "design"),
+        None,
+    )
