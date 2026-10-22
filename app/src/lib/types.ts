@@ -139,6 +139,15 @@ export interface GenerationStats {
   chunks: number;
   load_seconds: number;
   memory: { gpu_peak_bytes?: number; rss_peak_bytes?: number };
+  /** Set when the take was fitted to a target length. */
+  fit?: { target_s: number; natural_s: number; achieved_s: number; pause_scale: number; speed: number; within: boolean } | null;
+}
+
+export interface Estimate {
+  seconds: number;
+  shortest_s: number;
+  longest_s: number;
+  basis: "voice" | "typical";
 }
 
 export interface Generation {

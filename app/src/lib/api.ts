@@ -2,6 +2,7 @@ import { getConnection } from "./backend";
 import type {
   Clip,
   Draft,
+  Estimate,
   ExportResult,
   Generation,
   Job,
@@ -136,6 +137,7 @@ export const api = {
   },
 
   // generation and jobs
+  estimate: (body: { voice_id: string; text: string; language: string }) => post<Estimate>("/api/estimate", body),
   generate: (body: {
     text: string;
     voice_id: string;
@@ -145,6 +147,7 @@ export const api = {
     clip_id?: string;
     style?: Partial<Style>;
     tone?: string;
+    target_seconds?: number;
   }) =>
     post<JobRef>("/api/generate", body),
   job: (id: string) => get<Job>(`/api/jobs/${id}`),

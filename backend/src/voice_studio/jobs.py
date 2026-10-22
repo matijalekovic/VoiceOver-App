@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import psutil
 
-from . import audio, style, text
+from . import audio, style, text, timing
 from .catalog import WHISPER_LANGUAGES
 from .db import new_id, now_iso
 from .errors import EngineError, JobCancelled, NotFound, StudioError
@@ -429,11 +429,18 @@ class JobRunner:
                     paragraph_gap if piece.ends_paragraph else sentence_gap,
                 )
             )
-        combined = audio.join(parts, sample_rate)
-        if style.needs_processing(delivery):
-            combined = audio.change_tempo_pitch(
-                combined, sample_rate, speed=delivery["speed"], semitones=delivery["pitch"]
+        target_s = payload.get("target_seconds")
+        fitted = None
+        if target_s:  # fit to a length; this replaces the speed setting
+            combined, fitted = timing.fit(
+                parts, sample_rate, float(target_s), pitch=delivery["pitch"]
             )
+        else:
+            combined = audio.join(parts, sample_rate)
+            if style.needs_processing(delivery):
+                combined = audio.change_tempo_pitch(
+                    combined, sample_rate, speed=delivery["speed"], semitones=delivery["pitch"]
+                )
         combined = audio.normalise_peak(combined, -1.0)
         if len(combined) == 0:
             raise StudioError("empty_output", "The model produced no audible speech.")
@@ -463,12 +470,14 @@ class JobRunner:
             "system_available_bytes": psutil.virtual_memory().available,
             "engine": (loaded.get("info") or {}).get("engine"),
             "engine_details": (loaded.get("info") or {}).get("details"),
+            "fit": fitted,
         }
         params = {
             "seed": seed,
             "max_chunk_chars": studio.pref("max_chunk_chars"),
             **delivery,
             "tone": tone,
+            "target_seconds": target_s,
             "fingerprint": fingerprint,
         }
         with self.db.write() as conn:

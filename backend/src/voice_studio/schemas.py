@@ -208,9 +208,24 @@ class GenerateRequest(Model):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     clip_id: str | None = None  # a style take of the voice; its chosen clip if empty
     style: Style | None = None
+    # Fit the result to this length (seconds), e.g. a video's: pauses, then tempo.
+    target_seconds: float | None = Field(default=None, gt=0, le=3600)
     # A tone instruction ("cheerful", "calm and warm"). For a cloned voice it switches to
     # fingerprint-only cloning, the mode that responds to instructions.
     tone: str | None = Field(default=None, max_length=300)
+
+
+class EstimateRequest(Model):
+    voice_id: str
+    text: str
+    language: str
+
+
+class Estimate(Model):
+    seconds: float  # natural length
+    shortest_s: float  # what fitting can reach
+    longest_s: float
+    basis: Literal["voice", "typical"]  # the voice's own pace, or a typical one
 
 
 class Job(Model):

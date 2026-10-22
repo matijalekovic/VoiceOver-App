@@ -10,7 +10,7 @@ import { PlayButton } from "@/components/mini-player";
 import { LanguagePicker, ModelPicker, VoicePicker } from "@/components/pickers";
 import { type Delivery, deliveryFor, VoiceControls } from "@/components/voice-controls";
 import { Button } from "@/components/ui/button";
-import { Field, Textarea } from "@/components/ui/form";
+import { Field, Input, Textarea } from "@/components/ui/form";
 import {
   Callout,
   Card,
@@ -30,6 +30,24 @@ import { formatDate, formatDuration, languageLabel } from "@/lib/utils";
 
 const LIMIT = 20_000;
 
+/** "0:45", "45", "1:02.5" -> seconds; null when empty or not a length. */
+function parseLength(value: string): number | null {
+  const match = value.trim().match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  const seconds = Number(match[1] ?? 0) * 60 + Number(match[2]);
+  return seconds > 0 ? seconds : null;
+}
+
+/** The value, once it has stopped changing for `ms`. */
+function useSettled<T>(value: T, ms = 500): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
+
 export function Generate() {
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
@@ -46,6 +64,24 @@ export function Generate() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [delivery, setDelivery] = useState<Delivery>(deliveryFor(null));
+  const [targetText, setTargetText] = useState("");
+  const target = parseLength(targetText);
+  const settledText = useSettled(text);
+  const { data: estimate } = useQuery({
+    queryKey: ["estimate", voiceId, language, settledText],
+    queryFn: () => api.estimate({ voice_id: voiceId!, language: language!, text: settledText }),
+    enabled: !!voiceId && !!language && !!settledText.trim(),
+  });
+  const words = settledText.trim() ? settledText.trim().split(/\s+/).length : 0;
+  const perSecond = estimate && estimate.seconds > 0 ? words / estimate.seconds : 0;
+  const fitNote =
+    !target || !estimate
+      ? null
+      : target < estimate.shortest_s
+        ? { ok: false, text: `Too short for this script: cut about ${Math.ceil((estimate.shortest_s - target) * perSecond)} words.` }
+        : target > estimate.longest_s
+          ? { ok: false, text: `Too long for this script: add about ${Math.ceil((target - estimate.longest_s) * perSecond)} words.` }
+          : { ok: true, text: `Fits: pauses, then speed, will be adjusted from about ${formatDuration(estimate.seconds)}.` };
 
   const { data: drafts } = useQuery({ queryKey: ["drafts"], queryFn: api.drafts });
   const { data: recent } = useQuery({
@@ -105,6 +141,7 @@ export function Generate() {
         clip_id: delivery.clipId ?? undefined,
         style: delivery.style,
         tone: delivery.tone.trim() || undefined,
+        target_seconds: target ?? undefined,
       });
       setJobId(ref.job_id);
     } catch (err) {
@@ -211,6 +248,7 @@ export function Generate() {
             <div className="flex items-center justify-between border-t border-rule px-5 py-2.5 text-xs text-ink-3">
               <span className="num">
                 {text.length.toLocaleString()} / {LIMIT.toLocaleString()} characters
+                {estimate && ` · about ${formatDuration(estimate.seconds)} ${estimate.basis === "voice" ? "at this voice's pace" : "at a typical pace"}`}
                 {text.length > 3000 && " · consider a project for long scripts"}
               </span>
               {text && (
@@ -231,6 +269,12 @@ export function Generate() {
                   <span className="num">
                     {formatDuration(result.duration_s)} in {result.stats.elapsed_s.toFixed(1)}s
                   </span>
+                  {result.stats.fit && (
+                    <span className={result.stats.fit.within ? "text-green" : "text-amber"}>
+                      {" "}
+                      · {result.stats.fit.within ? "fitted to" : "closest possible to"} {formatDuration(result.stats.fit.target_s)}
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="ghost" onClick={generate} disabled={busy}>
@@ -271,6 +315,21 @@ export function Generate() {
             >
               <ModelPicker id="model" value={modelId} onChange={setModelId} capability={capability} />
             </Field>
+            <Field
+              label="Target length"
+              htmlFor="target"
+              hint="Optional. Fit the take to a video, e.g. 0:45. Adjusts the pauses first, then the speed (0.8–1.25×), instead of the Speed setting."
+            >
+              <Input
+                id="target"
+                value={targetText}
+                onChange={(e) => setTargetText(e.target.value)}
+                placeholder="m:ss"
+                className="h-9 w-28 text-[13.5px]"
+              />
+            </Field>
+            {targetText.trim() && !target && <p className="-mt-2 text-xs text-amber">Enter a length like 0:45 or 45.</p>}
+            {fitNote && <p className={`-mt-2 text-xs ${fitNote.ok ? "text-green" : "text-amber"}`}>{fitNote.text}</p>}
             {voice && (
               <div className="border-t border-rule pt-4">
                 <VoiceControls voice={voice} value={delivery} onChange={setDelivery} language={language} />
