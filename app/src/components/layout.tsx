@@ -10,7 +10,9 @@ import {
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { useActiveJobs, useModels, useStatus } from "@/lib/hooks";
 import { cn, formatBytes } from "@/lib/utils";
+import { useEffect, useState } from "react";
 import { BrandMark } from "./brand";
+import { ModelSetup } from "./model-setup";
 import { stageLabel } from "./job-progress";
 
 const NAV_GROUPS = [
@@ -108,7 +110,18 @@ function EngineCard() {
   );
 }
 
+/** Shown once at launch while no voice model is installed; closed by Continue or Skip. */
+function useFirstRunSetup(): [boolean, () => void] {
+  const { data: models } = useModels();
+  const [open, setOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (open === null && models) setOpen(!models.some((m) => m.kind === "tts" && m.status.state === "installed"));
+  }, [open, models]);
+  return [!!open, () => setOpen(false)];
+}
+
 export function Layout() {
+  const [setupOpen, closeSetup] = useFirstRunSetup();
   return (
     <div className="flex h-full">
       <aside className="flex w-[244px] shrink-0 flex-col border-r border-rule bg-panel px-3 pb-3">
@@ -142,7 +155,7 @@ export function Layout() {
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-6xl px-10 pb-16 pt-9">
-            <Outlet />
+            {setupOpen ? <ModelSetup onDone={closeSetup} /> : <Outlet />}
           </div>
         </div>
       </main>

@@ -106,13 +106,14 @@ function ModelRow({ model, isDefault, onDefault }: { model: ModelEntry; isDefaul
               <Download /> {s.state === "not_installed" ? "Download" : "Resume download"}
             </Button>
           )}
-          {s.state === "downloading" && (
+          {(s.state === "downloading" || s.state === "queued" || s.state === "starting") && (
             <Button size="sm" variant="ghost" onClick={act(() => api.cancelDownload(model.id), "Could not cancel")}>
               <X /> Cancel
             </Button>
           )}
         </div>
       </div>
+      {s.state === "queued" && <p className="mt-1 text-xs text-ink-3">Queued: starts when the current download finishes.</p>}
       {s.state === "downloading" && (
         <div className="mt-3">
           <Progress value={percent} />

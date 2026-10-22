@@ -58,3 +58,26 @@ def test_short_recordings_fall_back_to_shorter_clips():
 def test_demo_script_falls_back_to_english():
     assert demo_script("croatian") == demo_script("english")
     assert demo_script("french") != demo_script("english")
+
+
+def test_sentences_follow_punctuation_not_segment_boundaries():
+    def w(start, word):
+        return {"start": start, "end": start + 0.3, "word": word, "probability": 0.9}
+
+    # Whisper split mid-sentence; sentences are rebuilt from the words.
+    segments = [
+        {
+            "start": 0,
+            "end": 1.3,
+            "text": "Hello there. How",
+            "words": [w(0, "Hello"), w(0.4, " there."), w(1.0, " How")],
+        },
+        {"start": 1.4, "end": 2.0, "text": "are you?", "words": [w(1.4, " are"), w(1.7, " you?")]},
+    ]
+    from voice_studio.clips import sentences
+
+    assert [s["text"] for s in sentences(segments)] == ["Hello there.", "How are you?"]
+
+    # Without punctuation, a long pause still ends a sentence.
+    flat = [{"start": 0, "end": 5.3, "text": "a b", "words": [w(0, "a"), w(5.0, " b")]}]
+    assert [s["text"] for s in sentences(flat)] == ["a", "b"]

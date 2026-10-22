@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from .platform import USES_MLX
+
 MLX_QWEN3_ENGINE = "voice_studio.worker.mlx_qwen3:MlxQwen3TTSEngine"
+TORCH_QWEN3_ENGINE = "voice_studio.worker.torch_qwen3:TorchQwen3TTSEngine"
 
 # Whisper's language codes for the same languages.
 WHISPER_LANGUAGES: dict[str, str] = {
@@ -59,7 +62,8 @@ class ModelSpec:
         return asdict(self)
 
 
-CATALOG: list[ModelSpec] = [
+# Apple Silicon: MLX conversions of the checkpoints, run on the Apple GPU.
+MLX_CATALOG: list[ModelSpec] = [
     ModelSpec(
         id="qwen3-tts-1.7b-base-bf16",
         label="Qwen3-TTS 1.7B Base",
@@ -110,6 +114,50 @@ CATALOG: list[ModelSpec] = [
         kind="stt",
     ),
 ]
+
+# Windows (and other PCs): the original PyTorch checkpoints, on an NVIDIA GPU when there is
+# one. The ids match the Mac ones, so settings and projects mean the same on both.
+TORCH_CATALOG: list[ModelSpec] = [
+    ModelSpec(
+        id="qwen3-tts-1.7b-base-bf16",
+        label="Qwen3-TTS 1.7B Base",
+        repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        tier="quality",
+        parameters="1.7B",
+        quantization="bf16",
+        approx_download_gb=4.5,
+        approx_memory_gb=6.0,
+        engine=TORCH_QWEN3_ENGINE,
+        notes="Primary quality mode. Needs an NVIDIA GPU with 8 GB or more to run quickly.",
+    ),
+    ModelSpec(
+        id="qwen3-tts-0.6b-base-bf16",
+        label="Qwen3-TTS 0.6B Base",
+        repo_id="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+        tier="lightweight",
+        parameters="0.6B",
+        quantization="bf16",
+        approx_download_gb=2.5,
+        approx_memory_gb=3.5,
+        engine=TORCH_QWEN3_ENGINE,
+        notes="Lightweight mode for smaller GPUs, and the better choice without one.",
+    ),
+    ModelSpec(
+        id="whisper-large-v3-turbo",
+        label="Whisper large-v3 turbo",
+        repo_id="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        tier="speech recognition",
+        parameters="0.8B",
+        quantization="fp16",
+        approx_download_gb=1.6,
+        approx_memory_gb=2.0,
+        engine="voice_studio.worker.faster_whisper:FasterWhisperTranscriber",
+        notes="Transcribes recordings when you create a voice.",
+        kind="stt",
+    ),
+]
+
+CATALOG: list[ModelSpec] = MLX_CATALOG if USES_MLX else TORCH_CATALOG
 
 DEFAULT_MODEL_ID = CATALOG[0].id
 STT_MODEL_ID = "whisper-large-v3-turbo"

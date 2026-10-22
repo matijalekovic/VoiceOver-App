@@ -46,10 +46,15 @@ def validate_model_dir(path: Path, kind: str = "tts") -> list[str]:
     except (OSError, json.JSONDecodeError):
         return ["config.json is unreadable"]
     if kind == "stt":
-        if not list(path.glob("*.safetensors")):
-            problems.append("model weights (*.safetensors) are missing")
-        # The tokenizer and the alignment heads (for word timings) ship as separate files.
-        for name in ("tokenizer.json", "preprocessor_config.json", "generation_config.json"):
+        # MLX checkpoints ship safetensors plus the alignment heads (for word timings) in
+        # generation_config.json; CTranslate2 ones (faster-whisper) ship model.bin.
+        mlx_format = bool(list(path.glob("*.safetensors")))
+        if not mlx_format and not (path / "model.bin").exists():
+            problems.append("model weights are missing")
+        required = ["tokenizer.json", "preprocessor_config.json"]
+        if mlx_format:
+            required.append("generation_config.json")
+        for name in required:
             if not (path / name).exists():
                 problems.append(f"{name} is missing")
         return problems
@@ -98,6 +103,7 @@ class ModelManager:
         self.catalog = catalog if catalog is not None else CATALOG
         self._ctx = mp.get_context("spawn")
         self._downloads: dict[str, dict[str, Any]] = {}
+        self._queue: list[str] = []  # waiting downloads, started one at a time
         self._lock = threading.Lock()
 
     def spec(self, model_id: str) -> ModelSpec:
@@ -126,6 +132,8 @@ class ModelManager:
         path = self.models_dir / spec.id
         with self._lock:
             download = self._downloads.get(model_id)
+        if download and download["state"] in ("queued", "starting"):
+            return {"state": download["state"], "path": str(path)}
         if download and download["state"] in ("downloading", "failed"):
             if download["state"] == "downloading":
                 download["downloaded_bytes"] = dir_size(path)
@@ -158,24 +166,44 @@ class ModelManager:
         return [{**spec.to_dict(), "status": self.status(spec.id)} for spec in self.catalog]
 
     def start_download(self, model_id: str) -> dict[str, Any]:
+        """Start downloading, or queue behind the download already running."""
         spec = self.spec(model_id)
         with self._lock:
             current = self._downloads.get(model_id)
             if current and current["state"] == "downloading":
                 raise Conflict("download_in_progress", f"{spec.label} is already downloading.")
-            if any(d["state"] == "downloading" for d in self._downloads.values()):
-                raise Conflict(
-                    "download_in_progress", "Another model is downloading. Wait for it to finish."
-                )
+            if current and current["state"] == "queued":
+                return {"state": "queued"}
+            if any(d["state"] in ("downloading", "starting") for d in self._downloads.values()):
+                self._downloads[model_id] = {"state": "queued"}
+                self._queue.append(model_id)
+                return {"state": "queued"}
+            # Claimed before the (slow) size check, so a cancel in between is not lost.
+            self._downloads[model_id] = {"state": "starting"}
+        return self._launch(model_id)
+
+    def _launch(self, model_id: str) -> dict[str, Any]:
+        spec = self.spec(model_id)
         target = self.models_dir / spec.id
         target.mkdir(parents=True, exist_ok=True)
-        total = self._remote_size(spec.repo_id)
-        free = shutil.disk_usage(self.models_dir).free
-        if total and total - dir_size(target) > free:
-            raise StudioError(
-                "insufficient_disk",
-                f"Not enough free disk space: {total / 1e9:.1f} GB needed, {free / 1e9:.1f} GB free.",
-            )
+        try:
+            total = self._remote_size(spec.repo_id)
+            free = shutil.disk_usage(self.models_dir).free
+            if total and total - dir_size(target) > free:
+                raise StudioError(
+                    "insufficient_disk",
+                    f"Not enough free disk space: {total / 1e9:.1f} GB needed, {free / 1e9:.1f} GB free.",
+                )
+        except BaseException:
+            with self._lock:
+                self._downloads.pop(model_id, None)
+            raise
+        with self._lock:
+            if self._downloads.get(model_id, {}).get("cancelled"):
+                self._downloads.pop(model_id, None)
+                if not any(target.iterdir()):
+                    target.rmdir()  # nothing was downloaded
+                return {"state": "not_installed"}
         proc = self._ctx.Process(
             target=_download_main,
             args=(spec.repo_id, str(target), str(self.log_file), str(self.hf_home)),
@@ -213,8 +241,14 @@ class ModelManager:
             ) from exc
 
     def _watch(self, model_id: str, spec: ModelSpec, entry: dict[str, Any]) -> None:
+        entry["proc"].join()
+        try:
+            self._settle(model_id, spec, entry)
+        finally:
+            self._start_next()
+
+    def _settle(self, model_id: str, spec: ModelSpec, entry: dict[str, Any]) -> None:
         proc = entry["proc"]
-        proc.join()
         target = self.models_dir / spec.id
         with self._lock:
             if entry.get("cancelled"):
@@ -239,9 +273,32 @@ class ModelManager:
                 )
                 entry["downloaded_bytes"] = dir_size(target)
 
+    def _start_next(self) -> None:
+        """Start the next queued download, skipping any that cannot start."""
+        while True:
+            with self._lock:
+                if not self._queue:
+                    return
+                model_id = self._queue.pop(0)
+                self._downloads[model_id] = {"state": "starting"}
+            try:
+                self._launch(model_id)
+                return
+            except StudioError as exc:
+                with self._lock:
+                    self._downloads[model_id] = {"state": "failed", "error": exc.message}
+
     def cancel_download(self, model_id: str) -> None:
         with self._lock:
             entry = self._downloads.get(model_id)
+            if entry and entry["state"] == "queued":
+                self._downloads.pop(model_id, None)
+                if model_id in self._queue:
+                    self._queue.remove(model_id)
+                return
+            if entry and entry["state"] == "starting":
+                entry["cancelled"] = True  # _launch sees this before starting the process
+                return
             if not entry or entry["state"] != "downloading":
                 return
             entry["cancelled"] = True
@@ -260,6 +317,10 @@ class ModelManager:
             self._downloads.pop(model_id, None)
 
     def shutdown(self) -> None:
+        with self._lock:
+            for model_id in self._queue:
+                self._downloads.pop(model_id, None)
+            self._queue.clear()
         for model_id in list(self._downloads):
             self.cancel_download(model_id)
 
@@ -268,6 +329,9 @@ class ModelManager:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
-                if not any(d["state"] == "downloading" for d in self._downloads.values()):
+                if not any(
+                    d["state"] in ("downloading", "starting", "queued")
+                    for d in self._downloads.values()
+                ):
                     return
             time.sleep(0.1)

@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
-import resource
 import sys
 import threading
 import time
@@ -29,14 +28,23 @@ log = logging.getLogger("voice_studio.inference")
 
 
 def _peak_rss_bytes() -> int:
+    if sys.platform == "win32":  # no `resource` module on Windows
+        import psutil
+
+        return int(psutil.Process().memory_info().peak_wset)
+    import resource
+
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return int(peak if sys.platform == "darwin" else peak * 1024)  # macOS reports bytes, Linux KiB
 
 
 def _watch_parent(parent_pid: int) -> None:
     # If the API process dies without stopping us, exit instead of holding GPU memory.
+    # Windows never re-parents orphans, so check that the parent still exists.
+    import psutil
+
     while True:
-        if os.getppid() != parent_pid:
+        if os.getppid() != parent_pid or not psutil.pid_exists(parent_pid):
             os._exit(0)
         time.sleep(1.0)
 
@@ -54,6 +62,16 @@ def worker_main(
         format="%(asctime)s %(levelname)s [inference] %(message)s",
     )
     threading.Thread(target=_watch_parent, args=(parent_pid,), daemon=True).start()
+    if os.environ.get("VOICE_STUDIO_DEVICE") == "cpu":
+        # Run on the CPU even where a GPU exists: for machines whose GPU cannot run the
+        # model, such as the virtual GPUs of CI runners. Slow, but correct.
+        from ..platform import USES_MLX
+
+        if USES_MLX:
+            import mlx.core as mx
+
+            mx.set_default_device(mx.cpu)
+        log.info("VOICE_STUDIO_DEVICE=cpu: running inference on the CPU")
 
     import numpy as np
     import soundfile as sf
@@ -259,17 +277,18 @@ class InferenceClient:
         assert self._proc is not None and self._conn is not None
         self._conn.send(message)
         while True:
-            if self._conn.poll(0.2):
-                try:
-                    reply = self._conn.recv()
-                except (EOFError, OSError):
-                    reply = None
-                if reply is not None:
-                    if reply.get("type") == "progress":
-                        if on_progress:
-                            on_progress(reply)
-                        continue
-                    return reply
+            try:
+                # On Windows poll() itself raises once the worker is gone (WinError 109).
+                reply = self._conn.recv() if self._conn.poll(0.2) else None
+            except (EOFError, OSError):
+                reply = None
+                self._proc.join(1)  # let it finish exiting, so the check below sees it
+            if reply is not None:
+                if reply.get("type") == "progress":
+                    if on_progress:
+                        on_progress(reply)
+                    continue
+                return reply
             if not self._proc.is_alive():
                 exit_code = self._proc.exitcode
                 forced = self._force_stopped

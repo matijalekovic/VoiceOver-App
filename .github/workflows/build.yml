@@ -1,0 +1,172 @@
+# Builds the installers on GitHub's machines:
+# - every pull request and push to main: both installers, kept as workflow artifacts;
+# - a version tag (git tag v0.2.0 && git push origin v0.2.0): the same, published to a
+#   GitHub Release.
+# Builds are unsigned until signing credentials are added (see docs/INSTALL.md).
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # creating the Release on tags
+
+jobs:
+  backend-tests:
+    # The fake engines exercise the queue, worker processes, audio and exports on each
+    # platform the app ships on (and Linux for development).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Tests
+        working-directory: backend
+        shell: bash
+        run: |
+          uv sync --frozen
+          uv run ruff check src tests
+          uv run pytest -q
+
+  installer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # Apple Silicon
+            target: aarch64-apple-darwin
+            files: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            files: app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      # Stages the backend source and the pinned uv binary next to the app. On Windows the
+      # Tauri config skips this step (no bash there), so it always runs here.
+      - name: Stage backend and uv
+        shell: bash
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+        run: bash scripts/prepare-bundle.sh
+      - name: Install UI dependencies
+        working-directory: app
+        run: npm ci
+      - name: Build installer
+        working-directory: app
+        run: npx tauri build --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voice-studio-${{ matrix.target }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+      # Install the built installer the way a user would, open the app, and wait for its
+      # first-run setup to install the runtime and start the engine.
+      - name: Install and open the app (Mac)
+        if: runner.os == 'macOS'
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          DMG=$(ls ${{ matrix.files }} | head -1)
+          MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | tail -1 | cut -f3)
+          cp -R "$MOUNT/1PAX Voice Studio.app" /Applications/
+          hdiutil detach "$MOUNT"
+          open "/Applications/1PAX Voice Studio.app"
+          DATA="$HOME/Library/Application Support/1PAX Voice Studio"
+          for _ in $(seq 1 170); do
+            if grep -q "ready on" "$DATA/logs/backend.log" 2>/dev/null; then
+              echo "Engine ready"; tail -3 "$DATA/logs/backend.log"
+              echo "RUNTIME_PYTHON=$DATA/runtime/venv/bin/python" >> "$GITHUB_ENV"
+              osascript -e 'quit app "1PAX Voice Studio"' || true
+              exit 0
+            fi
+            sleep 10
+          done
+          tail -40 "$DATA/logs/runtime-install.log" 2>/dev/null; tail -40 "$DATA/logs/backend.log" 2>/dev/null
+          exit 1
+
+      - name: Install and open the app (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "${{ matrix.files }}" | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList "/S" -Wait
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\1PAX Voice Studio" -Filter *.exe |
+            Where-Object { $_.Name -notmatch "uninstall|^uv" } | Select-Object -First 1
+          if (-not $exe) { throw "The installed app was not found." }
+          Write-Host "Installed: $($exe.FullName)"
+          $app = Start-Process -FilePath $exe.FullName -PassThru
+          $data = "$env:LOCALAPPDATA\com.onepax.voicestudio"
+          $deadline = (Get-Date).AddMinutes(28)
+          while ((Get-Date) -lt $deadline) {
+            if ((Test-Path "$data\logs\backend.log") -and (Select-String -Path "$data\logs\backend.log" -Pattern "ready on" -Quiet)) {
+              Write-Host "Engine ready"; Get-Content "$data\logs\backend.log" -Tail 3
+              "RUNTIME_PYTHON=$data\runtime\venv\Scripts\python.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              Stop-Process -Id $app.Id -Force
+              exit 0
+            }
+            if ($app.HasExited) { Write-Host "The app exited with code $($app.ExitCode)"; break }
+            Start-Sleep -Seconds 10
+          }
+          Get-Content "$data\logs\runtime-install.log" -Tail 40 -ErrorAction SilentlyContinue
+          Get-Content "$data\logs\backend.log" -Tail 40 -ErrorAction SilentlyContinue
+          exit 1
+
+      # With the runtime the app just installed: download the lightweight model and speech
+      # recognition, create a voice from a recording, generate speech and check the audio.
+      - name: Make a reference recording
+        shell: bash
+        run: |
+          TEXT="Good morning everyone. Today I want to walk you through our plans for the coming season. We have new products, new partners, and a lot of work ahead. Thank you for being here, and let us get started."
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            say -o "$RUNNER_TEMP/ref.aiff" "$TEXT" && afconvert -f WAVE -d LEI16@24000 -c 1 "$RUNNER_TEMP/ref.aiff" "$RUNNER_TEMP/ref.wav"
+          else
+            pwsh -Command "Add-Type -AssemblyName System.Speech; \$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \$s.SetOutputToWaveFile('$RUNNER_TEMP/ref.wav'); \$s.Speak('$TEXT'); \$s.Dispose()"
+          fi
+          ls -l "$RUNNER_TEMP/ref.wav"
+      - name: Clone a voice and generate speech
+        timeout-minutes: 60
+        shell: bash
+        env:
+          # The macOS runner's virtual GPU times out on the model (a CI limit, not the
+          # app's), so the Mac check runs MLX on the CPU. Windows runners have no GPU anyway.
+          VOICE_STUDIO_DEVICE: ${{ runner.os == 'macOS' && 'cpu' || '' }}
+        run: '"$RUNTIME_PYTHON" scripts/smoke_test.py --reference "$RUNNER_TEMP/ref.wav"'
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [backend-tests, installer]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "1PAX Voice Studio ${GITHUB_REF_NAME}" \
+            --notes "Downloads: the .dmg is for Macs with Apple Silicon, the .exe installer for Windows 10/11 (64-bit). These builds are not code-signed yet; see the install guide (docs/INSTALL.md) for the one-time security prompt."

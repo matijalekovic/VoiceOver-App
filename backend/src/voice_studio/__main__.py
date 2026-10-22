@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 
+import psutil
 import uvicorn
 
 from .app import create_app
@@ -18,16 +19,14 @@ from .studio import configure_logging
 
 def _exit_with_parent(parent_pid: int) -> None:
     """If the desktop shell disappears without stopping us, shut down cleanly."""
+    # Not os.kill(pid, 0): on Windows that terminates the process instead of probing it.
     while True:
         time.sleep(1.0)
-        try:
-            os.kill(parent_pid, 0)
-        except ProcessLookupError:
+        if not psutil.pid_exists(parent_pid):
             logging.getLogger("voice_studio").warning("desktop shell exited; shutting down")
-            os.kill(os.getpid(), signal.SIGTERM)
+            # uvicorn shuts down gracefully on SIGINT everywhere, on SIGTERM only on Unix.
+            signal.raise_signal(signal.SIGINT if sys.platform == "win32" else signal.SIGTERM)
             return
-        except PermissionError:
-            continue
 
 
 def main() -> None:

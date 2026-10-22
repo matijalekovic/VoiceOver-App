@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import platform
 import shutil
-import subprocess
 import sys
 from collections import deque
 from pathlib import Path
@@ -16,6 +15,8 @@ from ..catalog import QWEN3_LANGUAGES
 from ..errors import Conflict, StudioError
 from ..jobs import memory_pressure_level
 from ..models import dir_size
+from ..platform import USES_MLX, accelerator
+from ..platform import reveal as show_in_file_manager
 from ..studio import Studio
 from .deps import get_studio
 
@@ -146,7 +147,9 @@ def system_status(studio: Studio = Depends(get_studio)):
             "worker_pid": pid,
             "worker_rss_bytes": worker_rss,
             "last_memory": inference.last_memory,
-            "runtime_available": importlib.util.find_spec("mlx") is not None,
+            "runtime_available": importlib.util.find_spec("mlx" if USES_MLX else "torch")
+            is not None,
+            "accelerator": accelerator(),
         },
         "memory": {
             "total_bytes": vm.total,
@@ -223,7 +226,4 @@ def reveal(body: schemas.RevealRequest, studio: Studio = Depends(get_studio)):
         )
     if not target.exists():
         raise StudioError("not_found", "That file no longer exists.", status_code=404)
-    if sys.platform == "darwin":
-        subprocess.run(["/usr/bin/open", "-R", str(target)], check=False, timeout=10)
-    else:
-        raise StudioError("unsupported", "Revealing files is only available on macOS.")
+    show_in_file_manager(target)

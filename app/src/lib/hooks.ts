@@ -54,7 +54,7 @@ export function useModels(poll = false) {
     queryKey: ["models"],
     queryFn: api.models,
     refetchInterval: (q) =>
-      poll || q.state.data?.some((m) => m.status.state === "downloading") ? 1500 : false,
+      poll || q.state.data?.some((m) => ["downloading", "queued", "starting"].includes(m.status.state)) ? 1500 : false,
   });
 }
 

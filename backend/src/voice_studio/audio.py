@@ -13,6 +13,7 @@ import numpy as np
 import soundfile as sf
 
 from .errors import StudioError
+from .platform import NO_WINDOW
 
 MODEL_SAMPLE_RATE = 24_000
 _FRAME_S = 0.02
@@ -39,7 +40,7 @@ def ffmpeg_exe() -> str:
 
 def _run_ffmpeg(args: list[str]) -> None:
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, **NO_WINDOW)
     if proc.returncode != 0:
         raise StudioError(
             "audio_conversion_failed",
@@ -78,7 +79,8 @@ def write_wav(path: Path, audio: np.ndarray, sample_rate: int, subtype: str = "P
 
 
 def _fsync_replace(tmp: Path, dst: Path, mode: int = 0o600) -> None:
-    with open(tmp, "rb") as fh:
+    # Read-write: fsync on a read-only handle fails on Windows (EBADF).
+    with open(tmp, "r+b") as fh:
         os.fsync(fh.fileno())
     os.replace(tmp, dst)
     os.chmod(dst, mode)
