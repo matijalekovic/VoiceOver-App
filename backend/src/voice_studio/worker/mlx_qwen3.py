@@ -8,6 +8,7 @@ Two checkpoint types run here:
 
 from __future__ import annotations
 
+import contextlib
 import json
 from importlib import metadata
 from pathlib import Path
@@ -59,9 +60,7 @@ class MlxQwen3TTSEngine:
             )
         speech_tokenizer = getattr(model, "speech_tokenizer", None)
         if speech_tokenizer is None:
-            raise EngineError(
-                "model_incomplete", "The checkpoint's speech tokenizer is missing."
-            )
+            raise EngineError("model_incomplete", "The checkpoint's speech tokenizer is missing.")
         if model_type == "base" and not getattr(speech_tokenizer, "has_encoder", False):
             raise EngineError(
                 "model_incomplete",
@@ -122,27 +121,55 @@ class MlxQwen3TTSEngine:
                     "reference_required",
                     "This is a Base checkpoint; it needs a reference recording to clone.",
                 )
-            if not reference.transcript.strip():
+            tone = (request.instructions or "").strip() or None
+            if not reference.fingerprint_only and not reference.transcript.strip():
                 raise EngineError(
                     "missing_transcript", "The reference recording needs its exact transcript."
                 )
-            # Passing both ref_audio and ref_text selects the in-context (ICL) cloning path.
-            # mlx-audio caches the encoded reference in memory, so repeated chunks with the
-            # same reference only pay for the encoding once per loaded model.
-            results = list(
-                self._model.generate(
-                    text=request.text,
-                    ref_audio=reference.audio_path,
-                    ref_text=reference.transcript,
-                    lang_code=request.language,
-                    stream=False,
-                    **sampling,
+            if tone and not reference.fingerprint_only:
+                raise EngineError(
+                    "tone_needs_fingerprint", "Tone instructions need fingerprint-only cloning."
                 )
-            )
+            # ref_audio with ref_text selects in-context (ICL) cloning: the model continues
+            # the recording, accent included. ref_audio alone clones from the speaker
+            # fingerprint, in the requested language. mlx-audio caches the encoded reference,
+            # so repeated chunks only pay for the encoding once per loaded model.
+            kwargs = {
+                "text": request.text,
+                "ref_audio": reference.audio_path,
+                "lang_code": request.language,
+                "stream": False,
+                **sampling,
+            }
+            if not reference.fingerprint_only:
+                kwargs["ref_text"] = reference.transcript
+            with self._tone(tone):
+                results = list(self._model.generate(**kwargs))
         if not results:
             raise EngineError("empty_output", "The model returned no audio for this text.")
         audio = np.concatenate([np.asarray(r.audio, dtype=np.float32).reshape(-1) for r in results])
         return audio
+
+    @contextlib.contextmanager
+    def _tone(self, tone: str | None):
+        """mlx-audio's Base (fingerprint) path builds its prompt without an instruction, though
+        the prompt supports one and the Base model responds to it (measured: "cheerful" raised
+        pitch about 6 semitones over four seeds while the voice stayed recognisable). Pass it in
+        for the duration of one generation."""
+        if not tone:
+            yield
+            return
+        original = self._model._prepare_generation_inputs
+
+        def with_tone(*args, **kwargs):
+            kwargs["instruct"] = tone
+            return original(*args, **kwargs)
+
+        self._model._prepare_generation_inputs = with_tone
+        try:
+            yield
+        finally:
+            del self._model._prepare_generation_inputs  # back to the class method
 
     def memory(self) -> dict:
         try:

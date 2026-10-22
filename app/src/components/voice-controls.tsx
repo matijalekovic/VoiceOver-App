@@ -6,21 +6,26 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { toastError } from "@/lib/hooks";
 import type { Style, Voice } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, languageLabel } from "@/lib/utils";
 import { Button } from "./ui/button";
-import { Label } from "./ui/form";
+import { Input, Label } from "./ui/form";
 import { Select } from "./ui/select";
 
 /** What a generation asks for: a style take of the voice (null = its chosen clip) and delivery. */
 export interface Delivery {
   clipId: string | null;
   style: Style;
+  /** A tone instruction such as "cheerful" (empty for none). Not saved with the voice. */
+  tone: string;
 }
+
+const TONES = ["Cheerful", "Calm", "Serious", "Excited", "Warm"];
 
 export function deliveryFor(voice: Voice | undefined | null): Delivery {
   return {
     clipId: null,
     style: voice?.style ?? { expressiveness: 0.6, speed: 1, pitch: 0 },
+    tone: "",
   };
 }
 
@@ -85,13 +90,18 @@ export function VoiceControls({
   voice,
   value,
   onChange,
+  language,
   className,
 }: {
   voice: Voice;
   value: Delivery;
   onChange: (value: Delivery) => void;
+  /** The language being generated, to explain how a cloned voice will speak it. */
+  language?: string | null;
   className?: string;
 }) {
+  const cloned = voice.mode !== "design";
+  const otherLanguage = cloned && !!language && language.toLowerCase() !== voice.language.toLowerCase();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const set = (patch: Partial<Style>) => onChange({ ...value, style: { ...value.style, ...patch } });
@@ -114,6 +124,43 @@ export function VoiceControls({
 
   return (
     <div className={cn("space-y-4", className)}>
+      {otherLanguage && (
+        <p className="rounded-xl bg-blue-soft px-3 py-2 text-[12.5px] text-blue">
+          {voice.name} was recorded in {languageLabel(voice.language)}. In {languageLabel(language!)} it speaks from
+          its voice fingerprint, with native pronunciation instead of the recording's accent.
+        </p>
+      )}
+      <div className="space-y-2">
+        <Label htmlFor="tone">Tone</Label>
+        <Input
+          id="tone"
+          value={value.tone}
+          onChange={(e) => onChange({ ...value, tone: e.target.value.slice(0, 300) })}
+          placeholder="Optional, e.g. cheerful and upbeat"
+          className="h-9 text-[13.5px]"
+        />
+        <div className="flex flex-wrap gap-1.5">
+          {TONES.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => onChange({ ...value, tone: value.tone === t ? "" : t })}
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-[12px] transition-colors",
+                value.tone === t ? "border-ink bg-accent text-accent-ink" : "border-rule-strong text-ink-2 hover:bg-panel-2",
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        {cloned && value.tone.trim() && (
+          <p className="text-[11.5px] text-ink-3">
+            A tone makes the voice speak from its fingerprint, which follows instructions but keeps a little less of the
+            original recording's character.
+          </p>
+        )}
+      </div>
       {takes.length > 0 && (
         <div className="space-y-2">
           <Label>Style</Label>
@@ -163,7 +210,7 @@ export function VoiceControls({
         <Button size="sm" variant="outline" onClick={saveDefault} loading={saving} disabled={isDefault}>
           Save as voice default
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => onChange(deliveryFor(voice))} disabled={isDefault && !value.clipId}>
+        <Button size="sm" variant="ghost" onClick={() => onChange(deliveryFor(voice))} disabled={isDefault && !value.clipId && !value.tone}>
           <RotateCcw /> Reset
         </Button>
       </div>

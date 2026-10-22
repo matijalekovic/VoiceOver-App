@@ -22,9 +22,7 @@ def _resolve_language(language: str | None, fallback: str) -> str:
 
 def _model_for(studio: Studio, mode: str, requested: str | None) -> str:
     """The checkpoint this voice needs, failing at submit time rather than inside the job."""
-    model_id = requested or studio.models.default_model_for(
-        mode, studio.pref("default_model_id")
-    )
+    model_id = requested or studio.models.default_model_for(mode, studio.pref("default_model_id"))
     spec = studio.models.spec_for_mode(mode, model_id)
     if not studio.models.is_installed(model_id):
         raise StudioError(
@@ -131,7 +129,10 @@ def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(
     voice = service.get(voice_id)
     origin = {"voice_id": voice_id}
     if voice["mode"] == "clone":
-        clone = service.clone_reference(voice_id, body.reference_id)
+        language = _resolve_language(body.language, voice["language"])
+        clone = service.clone_reference(
+            voice_id, body.reference_id, language=language, tone=body.tone
+        )
         origin["reference_id"] = clone["reference_id"]
     model_id = _model_for(studio, voice["mode"], body.model_id)
     job = studio.jobs.submit(
@@ -142,10 +143,49 @@ def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(
             "language": _resolve_language(body.language, voice["language"]),
             "model_id": model_id,
             "style": body.style.model_dump() if body.style else None,
+            "tone": body.tone,
         },
         voice_id=voice_id,
     )
     return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.post("/{voice_id}/languages", response_model=schemas.JobRef, status_code=202)
+def add_language(voice_id: str, body: schemas.LanguageAdd, studio: Studio = Depends(get_studio)):
+    """Make a version of a cloned voice in another language: a demo spoken natively from the
+    voice's fingerprint. Generation in that language works with or without it; the version
+    is there to hear it first and to list the voice's languages."""
+    service = VoiceService(studio)
+    voice = service.get(voice_id)
+    if voice["mode"] != "clone":
+        raise StudioError(
+            "wrong_voice_mode", "A designed voice already speaks every language it supports."
+        )
+    language = body.language.lower()
+    if language == voice["language"].lower():
+        raise StudioError(
+            "same_language", "That is the language of the recording; the voice already speaks it."
+        )
+    clone = service.clone_reference(voice_id, None, language=language)
+    model_id = _model_for(studio, voice["mode"], body.model_id)
+    job = studio.jobs.submit(
+        "voice_test",
+        {
+            "text": demo_script(language),
+            "voice_id": voice_id,
+            "reference_id": clone["reference_id"],
+            "language": language,
+            "model_id": model_id,
+            "language_version": True,
+        },
+        voice_id=voice_id,
+    )
+    return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.delete("/{voice_id}/languages/{language}", status_code=204)
+def delete_language(voice_id: str, language: str, studio: Studio = Depends(get_studio)):
+    VoiceService(studio).delete_language_version(voice_id, language)
 
 
 @router.post("/{voice_id}/export", response_model=schemas.ExportResult)
@@ -226,8 +266,6 @@ def choose_clip(voice_id: str, clip_id: str, studio: Studio = Depends(get_studio
 
 
 @router.post("/{voice_id}/sample", response_model=schemas.Voice)
-def choose_sample(
-    voice_id: str, body: schemas.SampleChoice, studio: Studio = Depends(get_studio)
-):
+def choose_sample(voice_id: str, body: schemas.SampleChoice, studio: Studio = Depends(get_studio)):
     """Save a designed voice with the take the user picked as its preview."""
     return VoiceService(studio).choose_sample(voice_id, body.generation_id)

@@ -204,6 +204,10 @@ def get_spec(model_id: str, catalog: list[ModelSpec] | None = None) -> ModelSpec
 def design_spec(catalog: list[ModelSpec] | None = None) -> ModelSpec | None:
     """The checkpoint that designs voices from a description, if the catalog has one."""
     return next(
-        (spec for spec in (catalog if catalog is not None else CATALOG) if spec.capability == "design"),
+        (
+            spec
+            for spec in (catalog if catalog is not None else CATALOG)
+            if spec.capability == "design"
+        ),
         None,
     )

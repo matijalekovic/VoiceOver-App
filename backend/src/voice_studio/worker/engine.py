@@ -28,6 +28,10 @@ class EngineInfo:
 class CloneReference:
     audio_path: str  # mono WAV at the engine's sample rate
     transcript: str  # exact words spoken in audio_path
+    # Clone from the speaker's voice fingerprint only, not by continuing the recording: the
+    # voice keeps its timbre but not the recording's accent, so it can speak other
+    # languages natively, and it accepts a tone instruction. transcript is unused.
+    fingerprint_only: bool = False
 
 
 @dataclass
@@ -49,8 +53,7 @@ class TTSEngine(Protocol):
     def load(self, model_dir: Path) -> EngineInfo: ...
 
     def synthesize(self, request: ChunkRequest) -> np.ndarray:
-        """Return float32 mono audio at EngineInfo.sample_rate for one chunk of text.
-        """
+        """Return float32 mono audio at EngineInfo.sample_rate for one chunk of text."""
         ...
 
     def memory(self) -> dict:

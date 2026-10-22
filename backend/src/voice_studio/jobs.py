@@ -309,6 +309,8 @@ class JobRunner:
         reference: dict[str, Any] | None = None
         instructions: str | None = None
         reference_id: str | None = None
+        tone = (payload.get("tone") or "").strip() or None
+        fingerprint = False
         if mode == "design":
             instructions = voice["instructions"].strip()
             if not instructions:
@@ -316,10 +318,23 @@ class JobRunner:
                     "instructions_required",
                     f"“{voice['name']}” has no description, so it cannot be generated yet.",
                 )
+            if tone:  # a designed voice is a description; the tone extends it
+                instructions = f"{instructions.rstrip('.')}. {tone}"
         else:
-            clone = voices.clone_reference(payload["voice_id"], payload.get("reference_id"))
-            reference = {"audio_path": clone["audio_path"], "transcript": clone["transcript"]}
+            clone = voices.clone_reference(
+                payload["voice_id"],
+                payload.get("reference_id"),
+                language=payload["language"],
+                tone=tone,
+            )
+            fingerprint = bool(clone.get("fingerprint_only"))
+            reference = {
+                "audio_path": clone["audio_path"],
+                "transcript": clone["transcript"],
+                "fingerprint_only": fingerprint,
+            }
             reference_id = clone["reference_id"]
+            instructions = tone if fingerprint else None
         if job["kind"] == "segment":
             segment = self.db.one("SELECT * FROM segments WHERE id = ?", (job["segment_id"],))
             if not segment:
@@ -345,9 +360,7 @@ class JobRunner:
             if mode == "design":
                 # The description is the identity, but a stable seed keeps separate segments
                 # of the same designed voice closer together instead of re-rolling each time.
-                seed = zlib.crc32(
-                    f"{voice['id']}:{voice['instructions']}".encode()
-                ) & (2**31 - 1)
+                seed = zlib.crc32(f"{voice['id']}:{voice['instructions']}".encode()) & (2**31 - 1)
             else:
                 seed = random.randrange(2**31 - 1)
         work_dir = studio.paths.cache / "jobs" / job_id
@@ -451,7 +464,13 @@ class JobRunner:
             "engine": (loaded.get("info") or {}).get("engine"),
             "engine_details": (loaded.get("info") or {}).get("details"),
         }
-        params = {"seed": seed, "max_chunk_chars": studio.pref("max_chunk_chars"), **delivery}
+        params = {
+            "seed": seed,
+            "max_chunk_chars": studio.pref("max_chunk_chars"),
+            **delivery,
+            "tone": tone,
+            "fingerprint": fingerprint,
+        }
         with self.db.write() as conn:
             if (
                 job["kind"] == "segment"
@@ -479,6 +498,10 @@ class JobRunner:
                     "UPDATE segments SET active_generation_id = ?, updated_at = ? WHERE id = ?",
                     (generation_id, now_iso(), job["segment_id"]),
                 )
+        if payload.get("language_version"):
+            VoiceService(studio).set_language_version(
+                payload["voice_id"], payload["language"], generation_id
+            )
         if payload.get("clip_id"):
             VoiceService(studio).set_clip_demo(
                 payload["voice_id"], payload["clip_id"], generation_id

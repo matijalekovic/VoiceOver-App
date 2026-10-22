@@ -155,9 +155,7 @@ class ModelManager:
         chosen = get_spec(preferred, self.catalog) if preferred else None
         if chosen and chosen.kind == "tts" and chosen.capability == "clone":
             return chosen.id
-        clone = next(
-            (s for s in self.catalog if s.kind == "tts" and s.capability == "clone"), None
-        )
+        clone = next((s for s in self.catalog if s.kind == "tts" and s.capability == "clone"), None)
         if clone is None:
             raise StudioError("no_voice_model", "No voice cloning model is in the catalog.")
         return clone.id

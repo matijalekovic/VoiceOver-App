@@ -193,7 +193,7 @@ export function CloneVoice() {
               active={mode === "clone"}
               icon={<Mic />}
               title="Clone a recording"
-              description="Recreate the voice of a real person from 30 seconds to 3 minutes of clean speech, with their permission."
+              description="Recreate the voice of a real person from 30 seconds to 5 minutes of clean speech, with their permission."
               onClick={() => setMode("clone")}
             />
             <ModeCard
@@ -345,7 +345,7 @@ export function CloneVoice() {
             <Callout tone="neutral" className="border border-rule bg-panel shadow-card">
               <p className="mb-1 font-medium text-ink">What makes a good reference</p>
               <ul className="list-disc space-y-1 pl-4">
-                <li>30 seconds to 3 minutes of one person speaking naturally, in one file or several</li>
+                <li>30 seconds to 5 minutes of one person speaking naturally, in one file or several</li>
                 <li>A quiet room, no music, no other voices</li>
                 <li>Even distance from the microphone, no clipping</li>
                 <li>The same style you want to generate (calm narration, lively promo…)</li>

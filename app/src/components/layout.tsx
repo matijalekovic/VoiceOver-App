@@ -3,6 +3,7 @@ import {
   ChevronRight,
   FolderKanban,
   History as HistoryIcon,
+  Library as LibraryIcon,
   House,
   Settings as SettingsIcon,
   UsersRound,
@@ -27,6 +28,7 @@ const NAV_GROUPS = [
     title: "Create",
     items: [
       { to: "/generate", label: "Text to Speech", icon: AudioLines },
+      { to: "/library", label: "Audio library", icon: LibraryIcon },
       { to: "/history", label: "History", icon: HistoryIcon },
     ],
   },
@@ -38,6 +40,7 @@ const SECTIONS: Record<string, string> = {
   voices: "Voices",
   projects: "Projects",
   history: "History",
+  library: "Audio library",
   settings: "Settings",
 };
 const DETAIL: Record<string, string> = { voices: "Voice", projects: "Project" };

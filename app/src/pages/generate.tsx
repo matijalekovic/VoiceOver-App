@@ -104,6 +104,7 @@ export function Generate() {
         model_id: modelId ?? undefined,
         clip_id: delivery.clipId ?? undefined,
         style: delivery.style,
+        tone: delivery.tone.trim() || undefined,
       });
       setJobId(ref.job_id);
     } catch (err) {
@@ -272,7 +273,7 @@ export function Generate() {
             </Field>
             {voice && (
               <div className="border-t border-rule pt-4">
-                <VoiceControls voice={voice} value={delivery} onChange={setDelivery} />
+                <VoiceControls voice={voice} value={delivery} onChange={setDelivery} language={language} />
               </div>
             )}
             <Button
