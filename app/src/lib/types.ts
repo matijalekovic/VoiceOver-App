@@ -161,7 +161,15 @@ export interface Generation {
   text: string;
   language: string;
   model_id: string;
-  params: { seed?: number; tone?: string | null; fingerprint?: boolean };
+  params: {
+    seed?: number;
+    tone?: string | null;
+    fingerprint?: boolean;
+    expressiveness?: number;
+    speed?: number;
+    pitch?: number;
+    target_seconds?: number | null;
+  };
   duration_s: number;
   sample_rate: number;
   stats: GenerationStats;

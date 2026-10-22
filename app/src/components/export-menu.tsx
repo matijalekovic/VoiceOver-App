@@ -9,7 +9,7 @@ import { DropdownContent, DropdownItem, DropdownLabel, DropdownMenu, DropdownSep
 
 export type ExportChoice = { format: "wav" | "mp3"; bitrate?: 192 | 320; sample_rate?: number | null };
 
-const CHOICES: { label: string; hint: string; choice: ExportChoice }[] = [
+export const EXPORT_CHOICES: { label: string; hint: string; choice: ExportChoice }[] = [
   { label: "WAV", hint: "Lossless · 24 kHz", choice: { format: "wav" } },
   { label: "WAV 48 kHz", hint: "Lossless · for video", choice: { format: "wav", sample_rate: 48000 } },
   { label: "MP3 320 kbps", hint: "High quality", choice: { format: "mp3", bitrate: 320 } },
@@ -58,7 +58,7 @@ export function ExportMenu({
       </DropdownTrigger>
       <DropdownContent>
         <DropdownLabel>Save to the output folder</DropdownLabel>
-        {CHOICES.map((item) => (
+        {EXPORT_CHOICES.map((item) => (
           <DropdownItem key={item.label} onSelect={() => run(item.choice)}>
             <span className="flex-1">{item.label}</span>
             <span className="text-xs text-ink-3">{item.hint}</span>

@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { toastError } from "@/lib/hooks";
 import type { Job } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { DotSphere } from "./dot-sphere";
 import { Button } from "./ui/button";
 import { Badge, Progress } from "./ui/misc";
 
@@ -92,16 +93,13 @@ export function JobProgress({ job, onRetry, className }: { job: Job; onRetry?: (
 
   if (!active) return null;
   const audio = job.progress.audio_seconds;
+  const value = progressValue(job);
   return (
-    <div className={cn("rounded-xl border border-rule bg-panel-2/60 px-3.5 py-3", className)}>
+    <div className={cn("flex items-center gap-4 rounded-2xl border border-rule bg-panel-2/60 py-2 pl-2 pr-4", className)}>
+      <DotSphere size={120} active={job.status !== "queued"} progress={value == null ? null : value / 100} className="shrink-0" />
+      <div className="min-w-0 flex-1">
       <div className="mb-2 flex items-center justify-between gap-3 text-[13px]">
-        <span className="flex items-center gap-2 font-medium">
-          <span className="speaking-bars text-ink" aria-hidden>
-            <span />
-            <span />
-            <span />
-            <span />
-          </span>
+        <span className="flex min-w-0 items-center gap-2 font-medium">
           {stageLabel(job)}
           {job.cancel_requested && <span className="text-ink-3">· stopping after this part</span>}
         </span>
@@ -122,7 +120,8 @@ export function JobProgress({ job, onRetry, className }: { job: Job; onRetry?: (
           )}
         </span>
       </div>
-      <Progress value={progressValue(job)} />
+      <Progress value={value} />
+      </div>
     </div>
   );
 }

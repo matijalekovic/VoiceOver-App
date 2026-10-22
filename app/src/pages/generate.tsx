@@ -52,7 +52,8 @@ export function Generate() {
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
   const location = useLocation();
-  const reuse = (location.state as { text?: string; voice_id?: string; language?: string } | null) ?? null;
+  const reuse =
+    (location.state as { text?: string; voice_id?: string; language?: string; tone?: string } | null) ?? null;
   const { data: voices } = useVoices();
   const { data: models } = useModels();
   const [text, setText] = useState(reuse?.text ?? "");
@@ -103,8 +104,9 @@ export function Generate() {
   const deliveryVoiceId = useRef<string | null>(null);
   useEffect(() => {
     if (voice && deliveryVoiceId.current !== voice.id) {
+      const first = deliveryVoiceId.current === null;
       deliveryVoiceId.current = voice.id;
-      setDelivery(deliveryFor(voice));
+      setDelivery({ ...deliveryFor(voice), tone: first ? (reuse?.tone ?? "") : "" });
     }
   }, [voice]);
   const preferredModelId = usePreferredModelId(capability);
