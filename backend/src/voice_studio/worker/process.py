@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
-import resource
 import sys
 import threading
 import time
@@ -29,6 +28,12 @@ log = logging.getLogger("voice_studio.inference")
 
 
 def _peak_rss_bytes() -> int:
+    if sys.platform == "win32":  # no `resource` module on Windows
+        import psutil
+
+        return int(psutil.Process().memory_info().peak_wset)
+    import resource
+
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return int(peak if sys.platform == "darwin" else peak * 1024)  # macOS reports bytes, Linux KiB
 
