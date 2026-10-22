@@ -173,7 +173,12 @@ def main() -> None:
             },
         )
         api.upload(f"/api/voices/{voice['id']}/references", args.reference, {})
-        job = api.call("POST", f"/api/voices/{voice['id']}/create", {"model_id": args.model})
+        # Short lines: CI runners generate on the CPU, at many times slower than real time.
+        job = api.call(
+            "POST",
+            f"/api/voices/{voice['id']}/create",
+            {"model_id": args.model, "text": "Hello, this is a quick test."},
+        )
         wait_job(api, job["job_id"], "created voice (transcribed, cut takes, voiced demos)", 1800)
         voice = api.call("GET", f"/api/voices/{voice['id']}")
         clips = voice["clips"]
@@ -187,7 +192,7 @@ def main() -> None:
             "POST",
             "/api/generate",
             {
-                "text": "This is an automated check that speech generation works.",
+                "text": "Speech generation works.",
                 "voice_id": voice["id"],
                 "language": args.language,
             },

@@ -147,6 +147,10 @@ jobs:
       - name: Clone a voice and generate speech
         timeout-minutes: 60
         shell: bash
+        env:
+          # The macOS runner's virtual GPU times out on the model (a CI limit, not the
+          # app's), so the Mac check runs MLX on the CPU. Windows runners have no GPU anyway.
+          VOICE_STUDIO_DEVICE: ${{ runner.os == 'macOS' && 'cpu' || '' }}
         run: '"$RUNTIME_PYTHON" scripts/smoke_test.py --reference "$RUNNER_TEMP/ref.wav"'
 
   release:
