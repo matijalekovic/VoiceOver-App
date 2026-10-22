@@ -322,8 +322,8 @@ def test_create_voice_from_recordings_and_choose_a_clip(client, tmp_path, data_d
     # Two recordings, together well over the old one-minute limit.
     assert _upload(client, vid, speech_like_wav(tmp_path / "a.wav", seconds=70)).status_code == 201
     assert _upload(client, vid, speech_like_wav(tmp_path / "b.wav", seconds=40)).status_code == 201
-    # A third would pass three minutes in total.
-    over = _upload(client, vid, speech_like_wav(tmp_path / "c.wav", seconds=80))
+    # A third would pass five minutes in total.
+    over = _upload(client, vid, speech_like_wav(tmp_path / "c.wav", seconds=200))
     assert over.status_code == 400 and over.json()["error"]["code"] == "recordings_too_long"
 
     # Long recordings cannot be cloned from directly.

@@ -6,6 +6,7 @@ import {
   Circle,
   Download,
   FileAudio,
+  Languages,
   Mic,
   Pencil,
   Scissors,
@@ -44,7 +45,7 @@ import {
 import { DeleteVoiceDialog } from "./voices";
 
 /** All of a voice's recordings together; the backend enforces the same limit. */
-const MAX_TOTAL_S = 180;
+const MAX_TOTAL_S = 300;
 const AUDIO_ACCEPT = ".wav,.mp3,.m4a,.flac,.aac,.aiff,.aif,.caf,.ogg,.webm,audio/*";
 
 function useVoice(voiceId: string) {
@@ -122,11 +123,11 @@ function AddRecordings({ voice, remaining, onAdded }: { voice: Voice; remaining:
             {busy
               ? `Adding ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
               : full
-                ? "3 minutes reached — remove a recording to add another"
+                ? "5 minutes reached — remove a recording to add another"
                 : "Drop recordings here or click to choose"}
           </span>
           <span className="text-xs text-ink-3">
-            WAV, MP3, M4A or FLAC · one or several files · {formatDuration(remaining)} left of 3:00
+            WAV, MP3, M4A or FLAC · one or several files · {formatDuration(remaining)} left of 5:00
           </span>
           <input
             ref={input}
@@ -240,7 +241,7 @@ function RecordingsCard({ voice, onChanged }: { voice: Voice; onChanged: () => v
       <SectionTitle
         action={
           <span className="num text-[13px] text-ink-3">
-            {formatDuration(total)} of 3:00
+            {formatDuration(total)} of 5:00
           </span>
         }
       >
@@ -256,8 +257,8 @@ function RecordingsCard({ voice, onChanged }: { voice: Voice; onChanged: () => v
       )}
       <AddRecordings voice={voice} remaining={MAX_TOTAL_S - total} onAdded={onChanged} />
       <p className="mt-3 text-xs text-ink-3">
-        Clean speech from one person, no music or other voices. The more you add (up to 3 minutes), the more there is to
-        choose the best clip from.
+        Clean speech from one person, no music or other voices. The more you add (up to 5 minutes), the more there is to
+        choose the best clip from, and the steadier the voice sounds in other languages.
       </p>
     </Card>
   );
@@ -527,6 +528,73 @@ function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => 
   );
 }
 
+function LanguagesCard({ voice, onChanged }: { voice: Voice; onChanged: () => void }) {
+  const preferredModelId = usePreferredModelId();
+  const [language, setLanguage] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const job = useJob(jobId, () => onChanged());
+  const running = !!job && !["completed", "failed", "cancelled"].includes(job.status);
+  const taken = new Set([voice.language.toLowerCase(), ...voice.languages.map((l) => l.language)]);
+
+  async function add() {
+    if (!language) return;
+    try {
+      setJobId((await api.addLanguage(voice.id, { language, model_id: preferredModelId ?? undefined })).job_id);
+    } catch (err) {
+      toastError(err, "Could not add the language");
+    }
+  }
+
+  async function remove(lang: string) {
+    try {
+      await api.deleteLanguage(voice.id, lang);
+      onChanged();
+    } catch (err) {
+      toastError(err, "Could not remove the language");
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <SectionTitle>Languages</SectionTitle>
+      <p className="-mt-1 mb-4 text-[13.5px] text-ink-2">
+        In other languages {voice.name} speaks from the voice fingerprint: the same voice, with native pronunciation
+        instead of the recording's accent. Add a language to hear it first.
+      </p>
+      <ul className="divide-y divide-rule rounded-xl border border-rule">
+        <li className="flex items-center gap-3 px-4 py-3">
+          <span className="min-w-0 flex-1 text-[14px] font-medium">{languageLabel(voice.language)}</span>
+          <Badge>Original recording</Badge>
+        </li>
+        {voice.languages.map((l) => (
+          <li key={l.language} className="flex items-center gap-3 px-4 py-3">
+            {l.demo_generation_id ? (
+              <PlayButton id={l.demo_generation_id} url={api.generationAudioUrl(l.demo_generation_id)} />
+            ) : null}
+            <span className="min-w-0 flex-1 text-[14px] font-medium">{languageLabel(l.language)}</span>
+            <Badge tone="blue">Native pronunciation</Badge>
+            <Button size="icon-sm" variant="ghost" aria-label={`Remove ${languageLabel(l.language)}`} onClick={() => remove(l.language)}>
+              <Trash2 />
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <Field label="Add a language" className="w-52">
+          <LanguagePicker value={language} onChange={setLanguage} size="sm" />
+        </Field>
+        <Button onClick={add} disabled={!language || taken.has(language.toLowerCase()) || running}>
+          <Languages /> Add language
+        </Button>
+        {language && taken.has(language.toLowerCase()) && (
+          <span className="text-xs text-ink-3">{voice.name} already has {languageLabel(language)}.</span>
+        )}
+      </div>
+      {job && <JobProgress job={job} onRetry={(j) => setJobId(j.id)} className="mt-4" />}
+    </Card>
+  );
+}
+
 function TryPanel({ voice }: { voice: Voice }) {
   const lines = voice.mode === "design" ? DESIGN_SAMPLE_LINES : SAMPLE_LINES;
   const [text, setText] = useState(lines[voice.language] ?? lines.english);
@@ -557,6 +625,7 @@ function TryPanel({ voice }: { voice: Voice }) {
             model_id: modelId ?? undefined,
             reference_id: delivery.clipId ?? undefined,
             style: delivery.style,
+            tone: delivery.tone.trim() || undefined,
           })
         ).job_id,
       );
@@ -568,7 +637,7 @@ function TryPanel({ voice }: { voice: Voice }) {
   return (
     <div className="space-y-4">
       <Textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1000))} className="min-h-20" />
-      <VoiceControls voice={voice} value={delivery} onChange={setDelivery} className="max-w-md" />
+      <VoiceControls voice={voice} value={delivery} onChange={setDelivery} language={language} className="max-w-md" />
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Language" className="w-40">
           <LanguagePicker value={language} onChange={setLanguage} size="sm" />
@@ -953,6 +1022,9 @@ export function VoiceDetail() {
               <RecordingsCard voice={voice} onChanged={refresh} />
               <CreateVoiceCard voice={voice} onChanged={refresh} />
             </>
+          )}
+          {voice.status === "ready" && voice.mode !== "design" && (
+            <LanguagesCard voice={voice} onChanged={refresh} />
           )}
           {voice.status === "ready" && (
             <Card className="p-5">

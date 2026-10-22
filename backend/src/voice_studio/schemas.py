@@ -171,6 +171,7 @@ class Voice(Model):
     updated_at: str
     references: list[Reference] = []
     clips: list[Clip] = []
+    languages: list[LanguageVersion] = []
     generation_count: int = 0
 
 
@@ -180,6 +181,22 @@ class VoiceTest(Model):
     reference_id: str | None = None  # a recording or a clip; the voice's chosen clip if empty
     model_id: str | None = None
     style: Style | None = None
+    # A tone instruction ("cheerful", "calm and warm"). For a cloned voice it switches to
+    # fingerprint-only cloning, the mode that responds to instructions.
+    tone: str | None = Field(default=None, max_length=300)
+
+
+class LanguageVersion(Model):
+    """A cloned voice speaking another language natively, from its speaker fingerprint."""
+
+    language: str
+    demo_generation_id: str | None = None
+    created_at: str
+
+
+class LanguageAdd(Model):
+    language: str
+    model_id: str | None = None
 
 
 # -- generation and jobs --------------------------------------------------
@@ -191,6 +208,9 @@ class GenerateRequest(Model):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     clip_id: str | None = None  # a style take of the voice; its chosen clip if empty
     style: Style | None = None
+    # A tone instruction ("cheerful", "calm and warm"). For a cloned voice it switches to
+    # fingerprint-only cloning, the mode that responds to instructions.
+    tone: str | None = Field(default=None, max_length=300)
 
 
 class Job(Model):

@@ -100,7 +100,7 @@ def frame_rms_db(audio: np.ndarray, sample_rate: int) -> np.ndarray:
     return 20 * np.log10(np.maximum(rms, 1e-9))
 
 
-MAX_RECORDING_S = 180.0  # per recording, and for all of a voice's recordings together
+MAX_RECORDING_S = 300.0  # per recording, and for all of a voice's recordings together
 
 
 @dataclass
@@ -140,13 +140,13 @@ def analyse(audio: np.ndarray, sample_rate: int) -> QualityReport:
         flag(
             "short",
             "warning",
-            "Under 10 seconds can work but usually clones less reliably. 30 seconds to 3 minutes gives the best choice of clips.",
+            "Under 10 seconds can work but usually clones less reliably. 30 seconds to 5 minutes gives the best choice of clips.",
         )
     elif duration > MAX_RECORDING_S:
         flag(
             "too_long",
             "error",
-            "Over 3 minutes. Trim it, or split it into several recordings (3 minutes in total).",
+            "Over 5 minutes. Trim it, or split it into several recordings (5 minutes in total).",
         )
     if peak < 1e-4:
         flag("silent", "error", "The recording is silent.")

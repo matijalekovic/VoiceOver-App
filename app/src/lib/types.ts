@@ -102,6 +102,8 @@ export interface Voice {
   updated_at: string;
   references: Reference[];
   clips: Clip[];
+  /** Versions in other languages, spoken natively from the voice's fingerprint. */
+  languages: { language: string; demo_generation_id: string | null; created_at: string }[];
   generation_count: number;
 }
 
@@ -150,7 +152,7 @@ export interface Generation {
   text: string;
   language: string;
   model_id: string;
-  params: { seed?: number };
+  params: { seed?: number; tone?: string | null; fingerprint?: boolean };
   duration_s: number;
   sample_rate: number;
   stats: GenerationStats;

@@ -34,6 +34,9 @@ EXPORT_FORMAT_VERSION = 1
 # Without a chosen clip a voice clones from its whole primary recording; past this length
 # that is too slow and too memory-hungry, so the voice has to be created first.
 MAX_DIRECT_REFERENCE_S = 60.0
+# Fingerprint-only cloning reads the speaker from up to this much of the voice's takes,
+# joined; more speech gives a steadier fingerprint than a single clip.
+FINGERPRINT_MAX_S = 60.0
 
 
 def _minutes(seconds: float) -> str:
@@ -94,11 +97,18 @@ class VoiceService:
         clips: dict[str, list[dict[str, Any]]] = {}
         for clip in self.db.all("SELECT * FROM voice_clips ORDER BY score DESC"):
             clips.setdefault(clip["voice_id"], []).append(_clip_row(clip))
+        languages: dict[str, list[dict[str, Any]]] = {}
+        for row in self.db.all(
+            "SELECT voice_id, language, demo_generation_id, created_at FROM voice_languages "
+            "ORDER BY created_at"
+        ):
+            languages.setdefault(row.pop("voice_id"), []).append(row)
         return [
             {
                 **_voice_row(r),
                 "references": by_voice.get(r["id"], []),
                 "clips": clips.get(r["id"], []),
+                "languages": languages.get(r["id"], []),
             }
             for r in rows
         ]
@@ -117,10 +127,16 @@ class VoiceService:
         clips = self.db.all(
             "SELECT * FROM voice_clips WHERE voice_id = ? ORDER BY score DESC", (voice_id,)
         )
+        languages = self.db.all(
+            "SELECT language, demo_generation_id, created_at FROM voice_languages "
+            "WHERE voice_id = ? ORDER BY created_at",
+            (voice_id,),
+        )
         return {
             **_voice_row(row),
             "references": [_reference_row(r) for r in refs],
             "clips": [_clip_row(c) for c in clips],
+            "languages": languages,
         }
 
     def create(
@@ -297,7 +313,7 @@ class VoiceService:
             if total > audio.MAX_RECORDING_S + 0.5:
                 raise StudioError(
                     "recordings_too_long",
-                    f"A voice's recordings can add up to 3 minutes. This one ({_minutes(quality.duration_s)}) "
+                    f"A voice's recordings can add up to 5 minutes. This one ({_minutes(quality.duration_s)}) "
                     f"would bring the total to {_minutes(total)}. Trim it or remove another recording.",
                 )
         except BaseException:
@@ -407,10 +423,25 @@ class VoiceService:
             return self._ref_dir(voice_id, ref_id) / "source.wav"
         return self.paths.resolve(row["audio_path"])
 
-    def clone_reference(self, voice_id: str, ref_id: str | None) -> dict[str, Any]:
+    def clone_reference(
+        self,
+        voice_id: str,
+        ref_id: str | None,
+        *,
+        language: str | None = None,
+        tone: str | None = None,
+    ) -> dict[str, Any]:
         """The recording and transcript a generation clones from: the chosen clip, a given
-        clip or recording, or (for voices made before clips) the primary recording."""
+        clip or recording, or (for voices made before clips) the primary recording.
+
+        In another language than the recording's, or with a tone instruction, the voice is
+        cloned from its speaker fingerprint instead (fingerprint_only): continuing the
+        recording would carry its accent into the other language, and only that mode takes
+        an instruction."""
         voice = self.get(voice_id)
+        other_language = bool(language) and language.lower() != voice["language"].lower()
+        if voice["mode"] != "design" and (other_language or (tone or "").strip()):
+            return self._fingerprint_reference(voice, ref_id)
         if voice["mode"] == "design":
             raise StudioError(
                 "wrong_voice_mode",
@@ -458,6 +489,76 @@ class VoiceService:
             "audio_path": str(path),
             "transcript": row["transcript"],
         }
+
+    def _fingerprint_reference(self, voice: dict[str, Any], ref_id: str | None) -> dict[str, Any]:
+        """Speech to read the speaker fingerprint from: a style take when one is asked for,
+        otherwise the voice's best takes joined (see fingerprint_audio)."""
+        clip = next((c for c in voice["clips"] if c["id"] == ref_id), None)
+        path = (
+            self.paths.resolve(self.clip_row(voice["id"], clip["id"])["audio_path"])
+            if clip
+            else self.fingerprint_audio(voice)
+        )
+        return {
+            "voice": voice,
+            "reference_id": clip["id"] if clip else voice["clip_id"],
+            "audio_path": str(path),
+            "transcript": "",
+            "fingerprint_only": True,
+        }
+
+    def fingerprint_audio(self, voice: dict[str, Any]) -> Path:
+        """Up to FINGERPRINT_MAX_S of the voice's takes (chosen first, then kept, then the
+        rest by score), joined with short pauses. Cached until the takes change."""
+        clips = sorted(
+            voice["clips"],
+            key=lambda c: (c["id"] != voice["clip_id"], not c["kept"], -c["score"]),
+        )
+        sources: list[Path] = []
+        total = 0.0
+        for clip in clips:
+            if total >= FINGERPRINT_MAX_S:
+                break
+            sources.append(self.paths.resolve(self.clip_row(voice["id"], clip["id"])["audio_path"]))
+            total += clip["end_s"] - clip["start_s"]
+        if not sources:  # a voice made before takes existed: its primary recording
+            ref_id = voice["primary_reference_id"]
+            if not ref_id:
+                raise StudioError(
+                    "reference_required", f"The voice “{voice['name']}” has no recording yet."
+                )
+            sources = [self.paths.resolve(self.reference_row(voice["id"], ref_id)["audio_path"])]
+        folder = self.paths.voices / voice["id"]
+        target = folder / "fingerprint.wav"
+        manifest = folder / "fingerprint.json"
+        key = json.dumps([str(s) for s in sources])
+        if target.exists() and manifest.exists() and manifest.read_text() == key:
+            return target
+        pieces = []
+        sample_rate = audio.MODEL_SAMPLE_RATE
+        for source in sources:
+            samples, sample_rate = audio.read_audio(source)
+            pieces.append((samples, 0.3))
+        joined = audio.join(pieces, sample_rate)[: int(FINGERPRINT_MAX_S * sample_rate)]
+        audio.write_wav(target, joined, sample_rate)
+        manifest.write_text(key)
+        return target
+
+    # -- languages -------------------------------------------------------------------
+    def set_language_version(self, voice_id: str, language: str, generation_id: str) -> None:
+        self.get(voice_id)
+        self.db.execute(
+            "INSERT INTO voice_languages (voice_id, language, demo_generation_id, created_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(voice_id, language) DO UPDATE SET "
+            "demo_generation_id = excluded.demo_generation_id",
+            (voice_id, language.lower(), generation_id, now_iso()),
+        )
+
+    def delete_language_version(self, voice_id: str, language: str) -> None:
+        self.db.execute(
+            "DELETE FROM voice_languages WHERE voice_id = ? AND language = ?",
+            (voice_id, language.lower()),
+        )
 
     # -- transcripts and clips ---------------------------------------------------
     def set_segments(self, voice_id: str, ref_id: str, segments: list[dict[str, Any]]) -> None:

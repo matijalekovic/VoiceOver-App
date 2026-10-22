@@ -69,9 +69,7 @@ def test_design_a_voice_choose_a_take_and_generate(client):
     generation_ids = done["result"]["generation_ids"]
     assert len(generation_ids) == 3
 
-    takes = client.get(
-        f"/api/generations?voice_id={voice['id']}&kind=voice_test"
-    ).json()
+    takes = client.get(f"/api/generations?voice_id={voice['id']}&kind=voice_test").json()
     assert takes["total"] == 3
     assert {g["id"] for g in takes["items"]} == set(generation_ids)
     assert all(g["voice_name"] == "Designed narrator" for g in takes["items"])
@@ -153,15 +151,11 @@ def test_designing_again_replaces_old_takes_but_keeps_the_chosen_one(client):
     voice = make_design_voice(client)
     first = client.post(f"/api/voices/{voice['id']}/create", json={}).json()
     first_ids = wait_job(client, first["job_id"])["result"]["generation_ids"]
-    client.post(
-        f"/api/voices/{voice['id']}/sample", json={"generation_id": first_ids[0]}
-    )
+    client.post(f"/api/voices/{voice['id']}/sample", json={"generation_id": first_ids[0]})
 
     again = client.post(f"/api/voices/{voice['id']}/create", json={}).json()
     second_ids = wait_job(client, again["job_id"])["result"]["generation_ids"]
-    takes = client.get(
-        f"/api/generations?voice_id={voice['id']}&kind=voice_test"
-    ).json()
+    takes = client.get(f"/api/generations?voice_id={voice['id']}&kind=voice_test").json()
     remaining = {g["id"] for g in takes["items"]}
     assert set(second_ids) <= remaining
     assert first_ids[0] in remaining  # the chosen preview survives the new round
@@ -206,9 +200,7 @@ def test_project_uses_a_design_checkpoint_for_a_designed_voice(client, tmp_path)
 
     # Switching back to a cloned voice moves the project back to a cloning checkpoint.
     clone = make_voice(client, tmp_path)
-    updated = client.put(
-        f"/api/projects/{project['id']}", json={"voice_id": clone["id"]}
-    ).json()
+    updated = client.put(f"/api/projects/{project['id']}", json={"voice_id": clone["id"]}).json()
     assert updated["model_id"] == FAKE_MODEL
 
 

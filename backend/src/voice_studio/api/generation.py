@@ -32,6 +32,7 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
         "language": body.language.lower(),
         "seed": body.seed,
         "style": body.style.model_dump() if body.style else None,
+        "tone": body.tone,
     }
     if voice["mode"] == "design":
         if not voice["instructions"].strip():
@@ -39,7 +40,9 @@ def generate(body: schemas.GenerateRequest, studio: Studio = Depends(get_studio)
                 "instructions_required", "Describe the voice before generating with it."
             )
     else:
-        clone = service.clone_reference(body.voice_id, body.clip_id)
+        clone = service.clone_reference(
+            body.voice_id, body.clip_id, language=body.language, tone=body.tone
+        )
         payload["reference_id"] = clone["reference_id"]
     model_id = body.model_id or studio.models.default_model_for(
         voice["mode"], studio.pref("default_model_id")

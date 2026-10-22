@@ -7,6 +7,7 @@ otherwise on the CPU, which works but is far slower than real time.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from importlib import metadata
@@ -107,26 +108,59 @@ class TorchQwen3TTSEngine:
                     "reference_required",
                     "This is a Base checkpoint; it needs a reference recording to clone.",
                 )
-            if not reference.transcript.strip():
+            tone = (request.instructions or "").strip() or None
+            fingerprint = reference.fingerprint_only
+            if not fingerprint and not reference.transcript.strip():
                 raise EngineError(
                     "missing_transcript", "The reference recording needs its exact transcript."
                 )
-            key = (reference.audio_path, reference.transcript)
+            if tone and not fingerprint:
+                raise EngineError(
+                    "tone_needs_fingerprint", "Tone instructions need fingerprint-only cloning."
+                )
+            # x_vector_only_mode clones from the speaker fingerprint, not by continuing the
+            # recording, so the voice can speak other languages without the recording's accent.
+            key = (reference.audio_path, reference.transcript, fingerprint)
             if self._prompt_key != key:
                 self._prompt = self._model.create_voice_clone_prompt(
-                    ref_audio=reference.audio_path, ref_text=reference.transcript
+                    ref_audio=reference.audio_path,
+                    ref_text=None if fingerprint else reference.transcript,
+                    x_vector_only_mode=fingerprint,
                 )
                 self._prompt_key = key
-            wavs, sample_rate = self._model.generate_voice_clone(
-                text=request.text,
-                language=request.language,
-                voice_clone_prompt=self._prompt,
-                **sampling,
-            )
+            with self._tone(tone):
+                wavs, sample_rate = self._model.generate_voice_clone(
+                    text=request.text,
+                    language=request.language,
+                    voice_clone_prompt=self._prompt,
+                    **sampling,
+                )
         if not wavs or len(wavs[0]) == 0:
             raise EngineError("empty_output", "The model returned no audio for this text.")
         self._sample_rate = int(sample_rate)
         return np.asarray(wavs[0], dtype=np.float32).reshape(-1)
+
+    @contextlib.contextmanager
+    def _tone(self, tone: str | None):
+        """qwen-tts's clone call does not forward an instruction, though the model's generate
+        takes one and the Base model responds to it in fingerprint mode. Pass it in for the
+        duration of one generation."""
+        if not tone:
+            yield
+            return
+        wrapper = self._model
+        instruct = wrapper._tokenize_texts([wrapper._build_instruct_text(tone)])[0]
+        original = wrapper.model.generate
+
+        def with_tone(*args, **kwargs):
+            kwargs["instruct_ids"] = [instruct] * len(kwargs.get("input_ids") or [None])
+            return original(*args, **kwargs)
+
+        wrapper.model.generate = with_tone
+        try:
+            yield
+        finally:
+            del wrapper.model.generate  # back to the class method
 
     def memory(self) -> dict:
         try:
