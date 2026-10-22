@@ -49,8 +49,9 @@ never leave it.
 
 - **Mac:** delete the app from Applications. Your voices, recordings and models are in
   `~/Library/Application Support/1PAX Voice Studio`; delete that folder too to remove everything.
-- **Windows:** uninstall from **Settings → Apps**. Your data is in
-  `%LOCALAPPDATA%\1PAX Voice Studio`; delete it to remove everything.
+- **Windows:** uninstall from **Settings → Apps**. Tick **Delete the application data** in the
+  uninstaller to also remove your voices, recordings and models, which live in
+  `%LOCALAPPDATA%\com.onepax.voicestudio`.
 
 ## For maintainers: publishing a release
 
@@ -60,6 +61,10 @@ never leave it.
 3. The **Build** workflow builds the Mac and Windows installers and publishes them to a GitHub
    Release named after the tag. Every pull request builds both installers too (downloadable
    from the workflow run's artifacts), so a broken build shows up before it is merged.
+   Before anything is published, CI installs each installer on a clean GitHub machine, opens
+   the app until its first-run setup has the engine running, then uses that runtime to download
+   the lightweight model and speech recognition, create a voice from a recording and generate
+   speech (`scripts/smoke_test.py`).
 
 **Signing later.** To remove the security prompts, sign the builds:
 - Mac: an Apple Developer ID (Apple Developer Program). Add the certificate and notarization

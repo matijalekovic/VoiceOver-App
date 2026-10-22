@@ -55,7 +55,8 @@ export function BackendGate({ children }: { children: React.ReactNode }) {
         <p className="mt-1 text-[13px] text-ink-2">{state.message}</p>
         {state.phase === "installing" && (
           <p className="mt-1 text-xs text-ink-3">
-            First launch only: installing the local runtime. This needs an internet connection and takes a few minutes.
+            Needs an internet connection. After this, Voice Studio works offline. If it stops, Try again picks up where it
+            left off.
           </p>
         )}
       </div>
@@ -74,9 +75,12 @@ export function BackendGate({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {state.log && state.log.length > 0 && (
-        <pre className="selectable max-h-48 w-full max-w-2xl overflow-auto rounded-xl bg-panel-2 p-3 text-[11px] leading-relaxed text-ink-2">
-          {state.log.slice(-40).join("\n")}
-        </pre>
+        <details className="w-full max-w-2xl text-xs text-ink-3" open={failed}>
+          <summary className="cursor-pointer select-none text-center">Show details</summary>
+          <pre className="selectable mt-2 max-h-48 overflow-auto rounded-xl bg-panel-2 p-3 text-[11px] leading-relaxed text-ink-2">
+            {state.log.slice(-40).join("\n")}
+          </pre>
+        </details>
       )}
     </div>
   );

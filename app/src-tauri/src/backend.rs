@@ -67,9 +67,15 @@ pub struct Backend {
 
 impl Backend {
     pub fn new(app: AppHandle) -> Result<Self, Box<dyn std::error::Error>> {
-        // Windows: the per-machine local folder, so gigabytes of models stay out of a
-        // roaming profile. macOS: Application Support either way.
-        let data_dir = app.path().local_data_dir()?.join(APP_DIR_NAME);
+        // macOS: ~/Library/Application Support/1PAX Voice Studio. Windows: the app's own
+        // local folder (%LOCALAPPDATA%\com.onepax.voicestudio), which keeps gigabytes of
+        // models out of a roaming profile, apart from the install folder (named after the
+        // app), and is what the uninstaller's "delete app data" option removes.
+        let data_dir = if cfg!(windows) {
+            app.path().app_local_data_dir()?
+        } else {
+            app.path().data_dir()?.join(APP_DIR_NAME)
+        };
         fs::create_dir_all(&data_dir)?;
         Ok(Self {
             app,
@@ -322,7 +328,11 @@ impl Backend {
     fn install_runtime(self: &Arc<Self>, resources: &Path, runtime: &Path) -> Result<(), String> {
         self.set_phase(
             "installing",
-            "Installing the Python runtime and audio libraries…",
+            if cfg!(windows) {
+                "One-time setup: downloading the voice engine (about 4 GB, including PyTorch for NVIDIA GPUs). This takes several minutes; keep Voice Studio open."
+            } else {
+                "One-time setup: downloading the voice engine (about 1.5 GB). This takes a few minutes; keep Voice Studio open."
+            },
             None,
         );
         let uv = bundled_uv().ok_or("The bundled uv tool is missing from the app.")?;
@@ -342,10 +352,16 @@ impl Backend {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("Could not run uv: {e}"))?;
-        // uv reports progress on stderr; forward each line to the setup screen.
+        // uv reports progress on stderr; forward each line to the setup screen, and keep a
+        // copy in logs/runtime-install.log for when it fails on someone's machine.
         self.pipe_output(child.stdout.take());
+        let _ = fs::create_dir_all(self.data_dir.join("logs"));
+        let mut install_log = fs::File::create(self.data_dir.join("logs").join("runtime-install.log")).ok();
         if let Some(stderr) = child.stderr.take() {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Some(file) = install_log.as_mut() {
+                    let _ = writeln!(file, "{line}");
+                }
                 self.push_log(line);
                 let _ = self.app.emit("backend://status", self.snapshot());
             }
