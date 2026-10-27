@@ -288,6 +288,8 @@ export interface Language {
   label: string;
   enabled: boolean;
   supported_by_loaded_model: boolean | null;
+  /** Spoken without a language token of its own (Serbian); quality varies. */
+  experimental?: boolean;
   evaluation: { status?: string; notes?: string };
 }
 

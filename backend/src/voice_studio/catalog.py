@@ -28,6 +28,7 @@ WHISPER_LANGUAGES: dict[str, str] = {
     "chinese": "zh",
     "japanese": "ja",
     "korean": "ko",
+    "serbian": "sr",
 }
 
 # Qwen3-TTS language names as the checkpoint's codec_language_id spells them.
@@ -42,7 +43,19 @@ QWEN3_LANGUAGES: dict[str, str] = {
     "chinese": "Chinese",
     "japanese": "Japanese",
     "korean": "Korean",
+    "serbian": "Serbian (experimental)",
 }
+
+# Languages the checkpoint has no language token for, spoken with the token left out ("auto").
+# Serbian, measured with Whisper on one speaker: 18–26 % word error from Latin script, against
+# 50–60 % from Cyrillic or with the Russian token (Russian vowel reduction); see MULTILINGUAL.md.
+EXPERIMENTAL_LANGUAGES = {"serbian"}
+
+
+def model_language(code: str) -> str:
+    """The language the engine is asked for: the code itself, or "auto" for a language the
+    checkpoint has no token for."""
+    return "auto" if code.lower() in EXPERIMENTAL_LANGUAGES else code
 
 
 @dataclass(frozen=True)

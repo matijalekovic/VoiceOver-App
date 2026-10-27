@@ -46,6 +46,7 @@ export const LANGUAGE_LABELS: Record<string, string> = {
   chinese: "Chinese",
   japanese: "Japanese",
   korean: "Korean",
+  serbian: "Serbian",
 };
 
 export function languageLabel(code: string): string {
@@ -70,6 +71,7 @@ export const SAMPLE_LINES: Record<string, string> = {
   german: "Hallo, das ist ein kurzer Test meiner geklonten Stimme. Wie klingt sie?",
   italian: "Ciao, questa è una breve prova della mia voce clonata. Come ti sembra?",
   portuguese: "Olá, este é um breve teste da minha voz clonada. O que acha?",
+  serbian: "Zdravo, ovo je kratka proba mog kloniranog glasa. Kako vam zvuči?",
 };
 
 /** The same idea for synthetic voices, which are not cloned from anyone. */
