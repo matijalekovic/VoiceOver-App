@@ -43,11 +43,13 @@ jobs:
         include:
           - os: macos-14 # Apple Silicon
             target: aarch64-apple-darwin
+            installer: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             files: |
               app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
               app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz*
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            installer: app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
             files: |
               app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe*
     runs-on: ${{ matrix.os }}
@@ -99,7 +101,7 @@ jobs:
         timeout-minutes: 30
         shell: bash
         run: |
-          DMG=$(ls ${{ matrix.files }} | head -1)
+          DMG=$(ls ${{ matrix.installer }} | head -1)
           MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | tail -1 | cut -f3)
           cp -R "$MOUNT/1PAX Voice Studio.app" /Applications/
           hdiutil detach "$MOUNT"
@@ -122,7 +124,7 @@ jobs:
         timeout-minutes: 30
         shell: pwsh
         run: |
-          $setup = Get-ChildItem "${{ matrix.files }}" | Select-Object -First 1
+          $setup = Get-ChildItem "${{ matrix.installer }}" | Select-Object -First 1
           Start-Process -FilePath $setup.FullName -ArgumentList "/S" -Wait
           $exe = Get-ChildItem "$env:LOCALAPPDATA\1PAX Voice Studio" -Filter *.exe |
             Where-Object { $_.Name -notmatch "uninstall|^uv" } | Select-Object -First 1
