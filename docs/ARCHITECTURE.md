@@ -78,7 +78,7 @@ Tables: `voices` (with consent fields), `reference_recordings`, `projects`, `seg
 path is checked to stay inside the data folder. Large files are written to a temp file, fsynced
 and renamed.
 
-Exports go to the output folder (default `~/Music/1PAX Voice Studio/`): `Generations/`,
+Exports go to the output folder (default `~/Downloads/1PAX Voice Studio/`): `Generations/`,
 `<Project name>/`, `Voices/` (voice backups as `.voice.zip`, importable from My Voices).
 
 ## API

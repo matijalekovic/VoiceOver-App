@@ -15,7 +15,7 @@ from .worker.process import InferenceClient
 
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "default_model_id": DEFAULT_MODEL_ID,
-    "output_dir": str(Path.home() / "Music" / "1PAX Voice Studio"),
+    "output_dir": str(Path.home() / "Downloads" / "1PAX Voice Studio"),
     "idle_unload_minutes": 15,
     "unload_on_memory_pressure": True,
     # Every language the model speaks; each can be switched off in Settings → Languages.

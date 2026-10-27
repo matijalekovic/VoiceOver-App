@@ -136,7 +136,7 @@ sign and notarise it with an Apple Developer ID (Tauri supports this through
 |---|---|
 | Library (database, voices, projects, generated audio, models, logs) | `~/Library/Application Support/1PAX Voice Studio/` |
 | Python runtime of the installed app | `…/1PAX Voice Studio/runtime/` |
-| Exports | `~/Music/1PAX Voice Studio/` (change in Settings → Audio & exports) |
+| Exports | `~/Downloads/1PAX Voice Studio/` (change in Settings → Audio & exports) |
 | Logs | Settings → Storage & logs, or `…/1PAX Voice Studio/logs/` |
 
 To start over, quit the app and delete `~/Library/Application Support/1PAX Voice Studio/`
