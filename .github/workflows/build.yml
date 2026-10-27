@@ -2,7 +2,8 @@
 # - every pull request and push to main: both installers, kept as workflow artifacts;
 # - a version tag (git tag v0.2.0 && git push origin v0.2.0): the same, published to a
 #   GitHub Release.
-# Builds are unsigned until signing credentials are added (see docs/INSTALL.md).
+# Builds are not Apple/Microsoft code-signed (see docs/INSTALL.md). Updates are signed with the
+# app's own updater key; see docs/RELEASING.md.
 name: Build
 
 on:
@@ -42,10 +43,13 @@ jobs:
         include:
           - os: macos-14 # Apple Silicon
             target: aarch64-apple-darwin
-            files: app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            files: |
+              app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+              app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz*
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            files: app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            files: |
+              app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe*
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -70,9 +74,18 @@ jobs:
       - name: Install UI dependencies
         working-directory: app
         run: npm ci
+      # With the signing key (a repository secret), the build also makes the signed update
+      # files the app's updater downloads; without it (forks), just the installers.
       - name: Build installer
         working-directory: app
-        run: npx tauri build --target ${{ matrix.target }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          extra=()
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then extra=(--config src-tauri/tauri.updater.conf.json); fi
+          npx tauri build --target ${{ matrix.target }} "${extra[@]}"
       - uses: actions/upload-artifact@v4
         with:
           name: voice-studio-${{ matrix.target }}
@@ -162,6 +175,31 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # latest.json is what installed apps check (tauri.conf.json → plugins.updater). GitHub
+      # turns spaces in asset names into dots, so the files are renamed to match first.
+      - name: Update manifest
+        run: |
+          cd dist
+          for f in *\ *; do if [ -e "$f" ]; then mv "$f" "${f// /.}"; fi; done
+          python3 - <<'PY'
+          import glob, json, os, datetime
+          tag = os.environ["GITHUB_REF_NAME"]
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
+          platforms = {}
+          for key, pattern in (("darwin-aarch64", "*.app.tar.gz"), ("windows-x86_64", "*-setup.exe")):
+              found = [f for f in glob.glob(pattern) if os.path.exists(f + ".sig")]
+              if found:
+                  platforms[key] = {"signature": open(found[0] + ".sig").read().strip(), "url": base + found[0]}
+          if not platforms:
+              raise SystemExit("no signed update files: is the TAURI_SIGNING_PRIVATE_KEY secret set?")
+          json.dump({
+              "version": tag.lstrip("v"),
+              "notes": f"1PAX Voice Studio {tag}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }, open("latest.json", "w"), indent=2)
+          PY
+          cat latest.json
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

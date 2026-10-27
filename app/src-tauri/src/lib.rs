@@ -17,6 +17,8 @@ fn restart_backend(backend: State<'_, Arc<Backend>>) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let backend = Arc::new(Backend::new(app.handle().clone())?);
             app.manage(backend.clone());

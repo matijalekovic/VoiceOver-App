@@ -11,6 +11,7 @@ Windows 10/11 PCs, ideally with an NVIDIA GPU.
 
 **Installing a release:** see [docs/INSTALL.md](docs/INSTALL.md). Installers for both platforms
 are built by GitHub Actions and published to Releases when a version tag is pushed.
+Installed apps update themselves from those Releases: see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Developing (Mac)
 
