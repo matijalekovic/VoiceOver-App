@@ -62,7 +62,7 @@ stop a web page in Safari from calling the API; these do.
   saves and reuses the recording and transcript, which the spec allows ("otherwise save and
   re-use the sample and transcript"). `voices/<id>/conditioning/` is not created.
 - Standalone generations live in `generations/`; project takes in `projects/<id>/segments/`.
-- Exports are written to an output folder (default `~/Downloads/1PAX Voice Studio`) with a
+- Exports are written to an output folder (default `~/Downloads`) with a
   "Show in Finder" action, rather than asking for a location each time.
 - Generate drafts get their own small `drafts` table.
 
