@@ -3,12 +3,14 @@ import {
   AlertTriangle,
   Bookmark,
   CheckCircle2,
+  ChevronDown,
   Circle,
   Download,
   FileAudio,
   Languages,
   Mic,
   Pencil,
+  RotateCcw,
   Scissors,
   ShieldCheck,
   Sparkles,
@@ -32,7 +34,7 @@ import { Badge, Callout, Card, Progress, SectionTitle, Skeleton, Tabs } from "@/
 import { Waveform } from "@/components/waveform";
 import { api } from "@/lib/api";
 import { toastError, useJob, useModels, usePreferredModelId } from "@/lib/hooks";
-import type { Clip, Generation, Reference, Voice } from "@/lib/types";
+import type { Accent, Clip, Generation, LanguageProfile, LanguageTake, Reference, Voice } from "@/lib/types";
 import {
   cn,
   DESIGN_SAMPLE_LINES,
@@ -531,17 +533,18 @@ function CreateVoiceCard({ voice, onChanged }: { voice: Voice; onChanged: () => 
 function LanguagesCard({ voice, onChanged }: { voice: Voice; onChanged: () => void }) {
   const preferredModelId = usePreferredModelId();
   const [language, setLanguage] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const job = useJob(jobId, () => onChanged());
   const running = !!job && !["completed", "failed", "cancelled"].includes(job.status);
   const taken = new Set([voice.language.toLowerCase(), ...voice.languages.map((l) => l.language)]);
 
-  async function add() {
-    if (!language) return;
+  async function voiceTakes(lang: string) {
     try {
-      setJobId((await api.addLanguage(voice.id, { language, model_id: preferredModelId ?? undefined })).job_id);
+      setJobId((await api.addLanguage(voice.id, { language: lang, model_id: preferredModelId ?? undefined })).job_id);
+      setOpen(lang);
     } catch (err) {
-      toastError(err, "Could not add the language");
+      toastError(err, "Could not voice the takes");
     }
   }
 
@@ -558,8 +561,9 @@ function LanguagesCard({ voice, onChanged }: { voice: Voice; onChanged: () => vo
     <Card className="p-5">
       <SectionTitle>Languages</SectionTitle>
       <p className="-mt-1 mb-4 text-[13.5px] text-ink-2">
-        In other languages {voice.name} speaks from the voice fingerprint: the same voice, with native pronunciation
-        instead of the recording's accent. Add a language to hear it first.
+        Each language gets a profile: four takes spoken from {voice.name}'s voice fingerprint, each measured against the
+        original recordings. Every generation in that language continues the chosen take, so the voice, pitch and pace
+        stay the same from paragraph to paragraph.
       </p>
       <ul className="divide-y divide-rule rounded-xl border border-rule">
         <li className="flex items-center gap-3 px-4 py-3">
@@ -567,15 +571,36 @@ function LanguagesCard({ voice, onChanged }: { voice: Voice; onChanged: () => vo
           <Badge>Original recording</Badge>
         </li>
         {voice.languages.map((l) => (
-          <li key={l.language} className="flex items-center gap-3 px-4 py-3">
-            {l.demo_generation_id ? (
-              <PlayButton id={l.demo_generation_id} url={api.generationAudioUrl(l.demo_generation_id)} />
-            ) : null}
-            <span className="min-w-0 flex-1 text-[14px] font-medium">{languageLabel(l.language)}</span>
-            <Badge tone="blue">Native pronunciation</Badge>
-            <Button size="icon-sm" variant="ghost" aria-label={`Remove ${languageLabel(l.language)}`} onClick={() => remove(l.language)}>
-              <Trash2 />
-            </Button>
+          <li key={l.language}>
+            <div className="flex items-center gap-3 px-4 py-3">
+              {l.demo_generation_id ? (
+                <PlayButton id={l.demo_generation_id} url={api.generationAudioUrl(l.demo_generation_id)} />
+              ) : null}
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                onClick={() => setOpen(open === l.language ? null : l.language)}
+                aria-expanded={open === l.language}
+              >
+                <span className="truncate text-[14px] font-medium">{languageLabel(l.language)}</span>
+                <Badge tone="blue" className="shrink-0">
+                  {l.accent === "carried" ? "Own accent" : "Native"}
+                </Badge>
+                <ChevronDown className={cn("ml-auto size-4 shrink-0 text-ink-3 transition-transform", open === l.language && "rotate-180")} />
+              </button>
+              <Button size="icon-sm" variant="ghost" aria-label={`Remove ${languageLabel(l.language)}`} onClick={() => remove(l.language)}>
+                <Trash2 />
+              </Button>
+            </div>
+            {open === l.language && (
+              <LanguageProfilePanel
+                voice={voice}
+                profile={l}
+                busy={running}
+                onRevoice={() => voiceTakes(l.language)}
+                onChanged={onChanged}
+              />
+            )}
           </li>
         ))}
       </ul>
@@ -583,7 +608,7 @@ function LanguagesCard({ voice, onChanged }: { voice: Voice; onChanged: () => vo
         <Field label="Add a language" className="w-52">
           <LanguagePicker value={language} onChange={setLanguage} size="sm" />
         </Field>
-        <Button onClick={add} disabled={!language || taken.has(language.toLowerCase()) || running}>
+        <Button onClick={() => language && voiceTakes(language.toLowerCase())} disabled={!language || taken.has(language.toLowerCase()) || running}>
           <Languages /> Add language
         </Button>
         {language && taken.has(language.toLowerCase()) && (
@@ -595,6 +620,156 @@ function LanguagesCard({ voice, onChanged }: { voice: Voice; onChanged: () => vo
   );
 }
 
+function LanguageProfilePanel({
+  voice,
+  profile,
+  busy,
+  onRevoice,
+  onChanged,
+}: {
+  voice: Voice;
+  profile: LanguageProfile;
+  busy: boolean;
+  onRevoice: () => void;
+  onChanged: () => void;
+}) {
+  const name = languageLabel(profile.language);
+  const overrides = Object.keys(profile.style).length > 0;
+
+  async function update(body: Parameters<typeof api.updateLanguage>[2], failure: string) {
+    try {
+      await api.updateLanguage(voice.id, profile.language, body);
+      onChanged();
+    } catch (err) {
+      toastError(err, failure);
+    }
+  }
+
+  const accents: { value: Accent; label: string; hint: string }[] = [
+    {
+      value: "native",
+      label: "Native pronunciation",
+      hint: `Continues the chosen take below: ${voice.name}'s voice with a native ${name} accent.`,
+    },
+    {
+      value: "carried",
+      label: `${voice.name}'s own accent`,
+      hint: `Continues the original ${languageLabel(voice.language)} recording, so ${voice.name} sounds as when speaking ${name} as a second language. Steadiest, closest to the recording.`,
+    },
+  ];
+
+  return (
+    <div className="space-y-5 border-t border-rule bg-panel-2/50 px-4 py-4">
+      <div className="space-y-2">
+        <p className="text-[12px] font-medium uppercase tracking-wide text-ink-3">Accent</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {accents.map((a) => (
+            <button
+              key={a.value}
+              type="button"
+              onClick={() => profile.accent !== a.value && update({ accent: a.value }, "Could not change the accent")}
+              className={cn(
+                "rounded-xl border px-3 py-2.5 text-left transition-colors",
+                profile.accent === a.value ? "border-ink bg-panel" : "border-rule-strong hover:bg-panel",
+              )}
+              aria-pressed={profile.accent === a.value}
+            >
+              <span className="block text-[13.5px] font-medium">{a.label}</span>
+              <span className="mt-0.5 block text-[12px] text-ink-2">{a.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className={cn("space-y-2", profile.accent === "carried" && "opacity-60")}>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12px] font-medium uppercase tracking-wide text-ink-3">{name} takes</p>
+          <Button size="sm" variant="outline" onClick={onRevoice} disabled={busy}>
+            <Sparkles /> Voice new takes
+          </Button>
+        </div>
+        {profile.takes.length === 0 ? (
+          <p className="text-[12.5px] text-ink-2">
+            {profile.demo_generation_id
+              ? "This language was added before takes were scored. Voice new takes to choose the closest one."
+              : "No takes yet."}
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {profile.takes.map((t, i) => {
+              const chosen = t.generation_id === profile.demo_generation_id;
+              return (
+                <li
+                  key={t.generation_id}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border px-3 py-2",
+                    chosen ? "border-ink bg-panel" : "border-rule",
+                  )}
+                >
+                  <PlayButton id={t.generation_id} url={api.generationAudioUrl(t.generation_id)} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="flex items-center gap-2 whitespace-nowrap text-[13.5px] font-medium">
+                      Take {i + 1}
+                      {i === 0 && <Badge tone="green">Closest</Badge>}
+                    </span>
+                    <TakeMeasures take={t} />
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap">
+                    {chosen ? (
+                      <span className="text-[12.5px] text-ink-2">In use</span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => update({ take_id: t.generation_id }, "Could not choose the take")}
+                      >
+                        Use this take
+                      </Button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="text-[11.5px] text-ink-3">
+          Likeness is the model's own speaker measure against the original recordings; pitch is how far the take sits
+          from {voice.name}'s usual register. Listen too: pick the take that sounds most like {voice.name}.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 text-[12.5px] text-ink-2">
+        <span>
+          Delivery in {name}:{" "}
+          {overrides
+            ? Object.entries(profile.style)
+                .map(([k, v]) => (k === "speed" ? `speed ${v.toFixed(2)}×` : k === "pitch" ? `pitch ${v > 0 ? "+" : ""}${v} st` : `expressiveness ${Math.round(v * 100)}%`))
+                .join(", ")
+            : `the same as ${voice.name}'s default`}
+          . Set it in Try the voice below with {name} selected, then save it as the {name} default.
+        </span>
+        {overrides && (
+          <Button size="sm" variant="ghost" onClick={() => update({ style: {} }, "Could not reset the delivery")}>
+            <RotateCcw /> Use the voice's default
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TakeMeasures({ take }: { take: LanguageTake }) {
+  if (take.similarity === null && take.register_st === null) return null;
+  const st = take.register_st;
+  return (
+    <span className="num text-[12px] text-ink-2">
+      {take.similarity !== null && <>likeness {Math.round(take.similarity * 100)}%</>}
+      {take.similarity !== null && st !== null && " · "}
+      {st !== null && <>pitch {Math.abs(st) < 0.05 ? "on register" : `${st > 0 ? "+" : "−"}${Math.abs(st).toFixed(1)} st`}</>}
+    </span>
+  );
+}
+
 function TryPanel({ voice }: { voice: Voice }) {
   const lines = voice.mode === "design" ? DESIGN_SAMPLE_LINES : SAMPLE_LINES;
   const [text, setText] = useState(lines[voice.language] ?? lines.english);
@@ -602,8 +777,12 @@ function TryPanel({ voice }: { voice: Voice }) {
   const [modelId, setModelId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [latest, setLatest] = useState<string | null>(null);
-  const [delivery, setDelivery] = useState<Delivery>(() => deliveryFor(voice));
+  const [delivery, setDelivery] = useState<Delivery>(() => deliveryFor(voice, voice.language));
   const preferredModelId = usePreferredModelId(voice.mode);
+  function chooseLanguage(next: string) {
+    setLanguage(next);
+    setDelivery((current) => ({ ...deliveryFor(voice, next), tone: current.tone }));
+  }
   useEffect(() => {
     if (!modelId && preferredModelId) setModelId(preferredModelId);
   }, [modelId, preferredModelId]);
@@ -640,7 +819,7 @@ function TryPanel({ voice }: { voice: Voice }) {
       <VoiceControls voice={voice} value={delivery} onChange={setDelivery} language={language} className="max-w-md" />
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Language" className="w-40">
-          <LanguagePicker value={language} onChange={setLanguage} size="sm" />
+          <LanguagePicker value={language} onChange={chooseLanguage} size="sm" />
         </Field>
         <Field label="Model" className="w-56">
           <ModelPicker value={modelId} onChange={setModelId} size="sm" capability={voice.mode} />

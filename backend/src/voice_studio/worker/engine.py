@@ -32,6 +32,10 @@ class CloneReference:
     # voice keeps its timbre but not the recording's accent, so it can speak other
     # languages natively, and it accepts a tone instruction. transcript is unused.
     fingerprint_only: bool = False
+    # Recordings of the real speaker. When given, their averaged speaker embedding replaces
+    # the one read from audio_path, so a generated anchor take (see voices.clone_reference)
+    # lends its accent and delivery while the identity stays the speaker's own.
+    identity: list[str] | None = None
 
 
 @dataclass
@@ -63,6 +67,11 @@ class TTSEngine(Protocol):
     def reset_peak_memory(self) -> None: ...
 
     def release_cache(self) -> None: ...
+
+    # Optional: engines that can measure a speaker embedding (Qwen3-TTS Base, through its
+    # speaker encoder) also define
+    #     speaker_embedding(audio: np.ndarray) -> np.ndarray
+    # for 24 kHz mono audio; the worker uses it to keep a take on one voice (consistency.py).
 
 
 def create_engine(spec: str) -> TTSEngine:

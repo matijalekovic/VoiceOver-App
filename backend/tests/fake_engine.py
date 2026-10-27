@@ -19,6 +19,7 @@ from voice_studio.worker.engine import ChunkRequest, EngineInfo
 
 class FakeEngine:
     def load(self, model_dir: Path) -> EngineInfo:
+        self.requests = []
         config = json.loads((model_dir / "config.json").read_text())
         self.delay = float(os.environ.get("FAKE_ENGINE_DELAY", "0"))
         return EngineInfo(
@@ -28,6 +29,11 @@ class FakeEngine:
             languages=config.get("languages", ["english", "french", "spanish"]),
         )
 
+    requests: list[ChunkRequest] = []
+
+    def speaker_embedding(self, audio: np.ndarray) -> np.ndarray:
+        return np.ones(8, dtype=np.float32)  # every take is the same speaker; pitch differs
+
     def synthesize(self, request: ChunkRequest) -> np.ndarray:
         if "CRASH" in request.text:
             # What macOS does to a process using too much memory. Windows has no SIGKILL;
@@ -35,9 +41,14 @@ class FakeEngine:
             os.kill(os.getpid(), getattr(signal, "SIGKILL", signal.SIGTERM))
         if self.delay:
             time.sleep(self.delay)
+        self.requests.append(request)
+        # "WOBBLE" text comes out a fifth up the first time, like an off-voice chunk.
+        wobble = "WOBBLE" in request.text and not any(
+            r.text == request.text for r in self.requests[:-1]
+        )
         seconds = 0.2 + 0.02 * len(request.text)
         t = np.arange(int(24_000 * seconds)) / 24_000
-        tone = 0.3 * np.sin(2 * np.pi * 220 * t).astype(np.float32)
+        tone = 0.3 * np.sin(2 * np.pi * (330 if wobble else 220) * t).astype(np.float32)
         silence = np.zeros(2400, dtype=np.float32)
         return np.concatenate([silence, tone, silence])
 

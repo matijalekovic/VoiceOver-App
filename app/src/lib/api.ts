@@ -1,5 +1,6 @@
 import { getConnection } from "./backend";
 import type {
+  Accent,
   Clip,
   Draft,
   Estimate,
@@ -8,6 +9,7 @@ import type {
   Job,
   JobRef,
   Language,
+  LanguageProfile,
   ModelEntry,
   Preferences,
   Project,
@@ -125,8 +127,13 @@ export const api = {
   clipDemo: (voiceId: string, clipId: string, body: { model_id?: string; language?: string }) =>
     post<JobRef>(`/api/voices/${voiceId}/clips/${clipId}/demo`, body),
   chooseClip: (voiceId: string, clipId: string) => post<Voice>(`/api/voices/${voiceId}/clips/${clipId}/choose`),
-  addLanguage: (voiceId: string, body: { language: string; model_id?: string }) =>
+  addLanguage: (voiceId: string, body: { language: string; model_id?: string; accent?: Accent }) =>
     post<JobRef>(`/api/voices/${voiceId}/languages`, body),
+  updateLanguage: (
+    voiceId: string,
+    language: string,
+    body: { accent?: Accent; take_id?: string; style?: Partial<Style> },
+  ) => patch<LanguageProfile>(`/api/voices/${voiceId}/languages/${language}`, body),
   deleteLanguage: (voiceId: string, language: string) =>
     del<void>(`/api/voices/${voiceId}/languages/${language}`),
   exportVoice: (voiceId: string) => post<ExportResult>(`/api/voices/${voiceId}/export`),

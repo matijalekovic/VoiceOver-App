@@ -60,6 +60,21 @@ def job_row(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _take_score(scores: list[dict[str, Any]]) -> dict[str, Any]:
+    """One take's closeness to the speaker from its chunk scores (consistency.ChunkScore)."""
+    from .consistency import ChunkScore
+
+    if not scores:  # an engine that cannot measure: every take ranks the same
+        return {"similarity": None, "register_st": None, "rank": 0.0}
+    parsed = [ChunkScore(**s) for s in scores]
+    sims = [p.similarity for p in parsed if p.similarity is not None]
+    registers = [p.register_st for p in parsed if p.register_st is not None]
+    similarity = round(sum(sims) / len(sims), 3) if sims else None
+    register = round(sum(registers) / len(registers), 2) if registers else None
+    rank = round(sum(p.rank for p in parsed) / len(parsed), 4)
+    return {"similarity": similarity, "register_st": register, "rank": rank}
+
+
 class JobRunner:
     def __init__(self, studio: Studio):
         self.studio = studio
@@ -275,6 +290,8 @@ class JobRunner:
             return self._synthesize(job)
         if job["kind"] == "voice_create":
             return self._create_voice(job)
+        if job["kind"] == "language_takes":
+            return self._language_takes(job)
         raise StudioError("unknown_job", f"Unknown job kind {job['kind']}.")
 
     def _load_model(self, job: dict[str, Any], model_id: str) -> dict[str, Any]:
@@ -311,6 +328,9 @@ class JobRunner:
         reference_id: str | None = None
         tone = (payload.get("tone") or "").strip() or None
         fingerprint = False
+        method = "design"
+        identity: list[str] | None = None
+        profile = voices.language_profile(voice, payload["language"])
         if mode == "design":
             instructions = voice["instructions"].strip()
             if not instructions:
@@ -326,12 +346,18 @@ class JobRunner:
                 payload.get("reference_id"),
                 language=payload["language"],
                 tone=tone,
+                force_fingerprint=bool(payload.get("fingerprint_take")),
             )
             fingerprint = bool(clone.get("fingerprint_only"))
+            method = clone["method"]
+            # Every take of a cloned voice is checked against the speaker's real recordings.
+            identity = clone.get("identity") or [str(p) for p in voices.identity_audio(voice)]
             reference = {
                 "audio_path": clone["audio_path"],
                 "transcript": clone["transcript"],
                 "fingerprint_only": fingerprint,
+                # A generated anchor lends delivery and accent; who speaks stays the speaker.
+                "identity": identity if method == "anchor" else None,
             }
             reference_id = clone["reference_id"]
             instructions = tone if fingerprint else None
@@ -347,7 +373,8 @@ class JobRunner:
         model_id = payload["model_id"]
         # Fail before loading the wrong checkpoint: a designed voice cannot run on Base.
         studio.models.spec_for_mode(mode, model_id)
-        delivery = style.resolve(voice["style"], payload.get("style"))
+        # The voice's delivery, then its language profile's, then this generation's.
+        delivery = style.resolve(voice["style"], (profile or {}).get("style"), payload.get("style"))
 
         load = self._load_model(job, model_id)
         self._check_cancel(job_id)
@@ -399,9 +426,11 @@ class JobRunner:
                 "language": payload["language"],
                 "reference": reference,
                 "instructions": instructions,
+                "identity": identity,
                 "seed": seed,
-                # One designed voice should not change between chunks of the same take.
-                "seed_step": 0 if mode == "design" else 1,
+                # One take, one seed: chunks differ only in their text (a retried chunk moves
+                # its own seed; see consistency.py).
+                "seed_step": 0,
                 "out_dir": str(work_dir),
                 **style.sampling(delivery["expressiveness"]),
             },
@@ -464,6 +493,7 @@ class JobRunner:
             "audio_seconds": result["audio_seconds"],
             "real_time_factor": result["real_time_factor"],
             "chunk_seconds": result["chunk_seconds"],
+            "chunk_scores": result.get("chunk_scores"),
             "chunks": len(pieces),
             "load_seconds": load["load_seconds"],
             "memory": result.get("memory", {}),
@@ -479,6 +509,7 @@ class JobRunner:
             "tone": tone,
             "target_seconds": target_s,
             "fingerprint": fingerprint,
+            "method": method,
         }
         with self.db.write() as conn:
             if (
@@ -507,10 +538,6 @@ class JobRunner:
                     "UPDATE segments SET active_generation_id = ?, updated_at = ? WHERE id = ?",
                     (generation_id, now_iso(), job["segment_id"]),
                 )
-        if payload.get("language_version"):
-            VoiceService(studio).set_language_version(
-                payload["voice_id"], payload["language"], generation_id
-            )
         if payload.get("clip_id"):
             VoiceService(studio).set_clip_demo(
                 payload["voice_id"], payload["clip_id"], generation_id
@@ -621,6 +648,62 @@ class JobRunner:
             )
             generation_ids.append(demo["generation_id"])
         return {"clip_ids": [c["id"] for c in clips], "generation_ids": generation_ids}
+
+    # Four takes: in measurements one fingerprint take in seven came out off-voice, so four
+    # nearly always include several good ones to choose from, in about a minute.
+    LANGUAGE_TAKES = 4
+
+    def _language_takes(self, job: dict[str, Any]) -> dict[str, Any]:
+        """Candidate takes for a language profile: the demo script spoken natively from the
+        speaker fingerprint with different seeds, each scored against the real recordings.
+        The closest becomes the take every generation in the language continues from."""
+        from .clips import demo_script
+        from .voices import VoiceService
+
+        payload = job["payload"]
+        voice_id, language = payload["voice_id"], payload["language"]
+        voices = VoiceService(self.studio)
+        previous = voices.language_profile(voices.get(voice_id), language) or {}
+        seed = payload.get("seed")
+        if seed is None:
+            seed = random.randrange(2**31 - 1)
+        takes = []
+        for number in range(1, self.LANGUAGE_TAKES + 1):
+            self._check_cancel(job["id"])
+            take = self._synthesize(
+                {
+                    **job,
+                    "kind": "voice_test",
+                    "payload": {
+                        "text": demo_script(language),
+                        "voice_id": voice_id,
+                        "language": language,
+                        "model_id": payload["model_id"],
+                        "fingerprint_take": True,
+                        "seed": seed + (number - 1) * 104_729,
+                        "progress_extra": {
+                            "step": "takes",
+                            "message": f"Voicing take {number} of {self.LANGUAGE_TAKES}",
+                        },
+                    },
+                }
+            )
+            scores = [s for s in take["stats"].get("chunk_scores") or [] if s]
+            takes.append({"generation_id": take["generation_id"], **_take_score(scores)})
+        # The take chosen before stays available to go back to; the rest of the old round goes.
+        chosen = previous.get("demo_generation_id")
+        kept = [t for t in previous.get("takes", []) if t["generation_id"] == chosen]
+        for old in previous.get("takes", []):
+            if old["generation_id"] != chosen:
+                self._delete_generation(old["generation_id"])
+        voices.set_language_takes(voice_id, language, takes + kept)
+        return {"generation_ids": [t["generation_id"] for t in takes]}
+
+    def _delete_generation(self, generation_id: str) -> None:
+        row = self.db.one("SELECT audio_path FROM generations WHERE id = ?", (generation_id,))
+        if row:
+            self.studio.paths.resolve(row["audio_path"]).unlink(missing_ok=True)
+            self.db.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
 
     # Three takes is enough to hear how a description settles without a long wait.
     DESIGN_TAKES = 3

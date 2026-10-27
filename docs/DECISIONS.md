@@ -71,6 +71,10 @@ stop a web page in Safari from calling the API; these do.
 - **Languages:** English, French and Spanish are enabled by default, the three the spec asks to
   evaluate. The other seven Qwen3-TTS languages can be switched on in Settings → Languages once
   checked, where each language also records an evaluation status and notes.
+- **One voice across languages:** a cloned voice gets a profile per language: a scored take it
+  continues in every generation (native accent) or the original recording (the speaker's own
+  accent), plus that language's delivery. Every chunk is checked against the real recordings and
+  regenerated when off-voice. Measurements and reasoning: [MULTILINGUAL.md](MULTILINGUAL.md).
 - **No style sliders.** Only controls that are implemented and verifiable: voice, language, model,
   pauses, chunk size, take selection. A per-generation seed is stored for traceability.
 - **Reference quality checks:** duration (10–30 s recommended, <3 s or >60 s blocked), clipping,

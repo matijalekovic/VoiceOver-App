@@ -152,9 +152,10 @@ def test_voice(voice_id: str, body: schemas.VoiceTest, studio: Studio = Depends(
 
 @router.post("/{voice_id}/languages", response_model=schemas.JobRef, status_code=202)
 def add_language(voice_id: str, body: schemas.LanguageAdd, studio: Studio = Depends(get_studio)):
-    """Make a version of a cloned voice in another language: a demo spoken natively from the
-    voice's fingerprint. Generation in that language works with or without it; the version
-    is there to hear it first and to list the voice's languages."""
+    """Make (or refresh) a cloned voice's profile for another language: candidate takes spoken
+    natively from the voice fingerprint, each scored against the real recordings, the closest
+    chosen as the take generations in the language continue from. Posting again for a language
+    that has a profile voices a new round of takes."""
     service = VoiceService(studio)
     voice = service.get(voice_id)
     if voice["mode"] != "clone":
@@ -166,21 +167,24 @@ def add_language(voice_id: str, body: schemas.LanguageAdd, studio: Studio = Depe
         raise StudioError(
             "same_language", "That is the language of the recording; the voice already speaks it."
         )
-    clone = service.clone_reference(voice_id, None, language=language)
+    service.identity_audio(voice)  # fails early for a voice without recordings
     model_id = _model_for(studio, voice["mode"], body.model_id)
+    service.ensure_language(voice_id, language, body.accent)
     job = studio.jobs.submit(
-        "voice_test",
-        {
-            "text": demo_script(language),
-            "voice_id": voice_id,
-            "reference_id": clone["reference_id"],
-            "language": language,
-            "model_id": model_id,
-            "language_version": True,
-        },
+        "language_takes",
+        {"voice_id": voice_id, "language": language, "model_id": model_id},
         voice_id=voice_id,
     )
     return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.patch("/{voice_id}/languages/{language}", response_model=schemas.LanguageVersion)
+def update_language(
+    voice_id: str, language: str, body: schemas.LanguageUpdate, studio: Studio = Depends(get_studio)
+):
+    return VoiceService(studio).update_language(
+        voice_id, language, body.model_dump(exclude_unset=True)
+    )
 
 
 @router.delete("/{voice_id}/languages/{language}", status_code=204)

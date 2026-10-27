@@ -28,6 +28,8 @@ class MlxQwen3TTSEngine:
         self._model = None
         self._model_type = "base"
         self._sample_rate = 24_000
+        self._identity_key: tuple[str, ...] | None = None
+        self._identity = None
 
     def load(self, model_dir: Path) -> EngineInfo:
         try:
@@ -143,7 +145,7 @@ class MlxQwen3TTSEngine:
             }
             if not reference.fingerprint_only:
                 kwargs["ref_text"] = reference.transcript
-            with self._tone(tone):
+            with self._tone(tone), self._pinned(reference.identity):
                 results = list(self._model.generate(**kwargs))
         if not results:
             raise EngineError("empty_output", "The model returned no audio for this text.")
@@ -170,6 +172,45 @@ class MlxQwen3TTSEngine:
             yield
         finally:
             del self._model._prepare_generation_inputs  # back to the class method
+
+    def speaker_embedding(self, audio: np.ndarray) -> np.ndarray:
+        """The speaker encoder's embedding of 24 kHz mono audio (what cloning conditions on)."""
+        import mlx.core as mx
+
+        embedding = self._model.extract_speaker_embedding(mx.array(audio, dtype=mx.float32))
+        return np.asarray(embedding, dtype=np.float32).reshape(-1)
+
+    @contextlib.contextmanager
+    def _pinned(self, identity: list[str] | None):
+        """Condition on the averaged speaker embedding of the speaker's real recordings instead
+        of the one read from the reference audio. Both mlx-audio paths (fingerprint and ICL)
+        read the embedding through extract_speaker_embedding, so it is replaced for the
+        duration of one generation."""
+        if not identity:
+            yield
+            return
+        import mlx.core as mx
+        import soundfile as sf
+
+        key = tuple(identity)
+        if self._identity_key != key:
+            embeddings = []
+            for path in identity:
+                samples, sr = sf.read(path, dtype="float32", always_2d=True)
+                if sr != 24_000:
+                    raise EngineError(
+                        "bad_reference",
+                        "Speaker recordings must be 24 kHz for the speaker encoder.",
+                    )
+                embeddings.append(self.speaker_embedding(samples.mean(axis=1)))
+            self._identity = mx.array(np.mean(embeddings, axis=0)[None, :])
+            self._identity_key = key
+        pinned = self._identity
+        self._model.extract_speaker_embedding = lambda audio, sr=24_000: pinned
+        try:
+            yield
+        finally:
+            del self._model.extract_speaker_embedding  # back to the class method
 
     def memory(self) -> dict:
         try:

@@ -21,6 +21,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from .. import consistency
 from ..errors import EngineError, JobCancelled
 from .metal import apply_kernel_workaround
 
@@ -36,6 +37,42 @@ def _peak_rss_bytes() -> int:
 
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return int(peak if sys.platform == "darwin" else peak * 1024)  # macOS reports bytes, Linux KiB
+
+
+def _judge(engine, identity: list[str] | None, sample_rate: int):
+    """A consistency judge for one take, from the speaker's real recordings; None for a voice
+    without recordings (a designed voice) or no recordings given."""
+    if not identity:
+        return None
+    import numpy as np
+    import soundfile as sf
+
+    embed = getattr(engine, "speaker_embedding", None)
+    embeddings, pitches = [], []
+    for path in identity:
+        samples, sr = sf.read(path, dtype="float32", always_2d=True)
+        samples = samples.mean(axis=1)
+        if embed is not None and sr == sample_rate:
+            embeddings.append(consistency.unit(embed(samples)))
+        hz = consistency.median_f0(samples, sr)
+        if hz:
+            pitches.append(hz)
+    return consistency.Judge(
+        np.mean(embeddings, axis=0) if embeddings else None,
+        float(np.median(pitches)) if pitches else None,
+        sample_rate,
+    )
+
+
+# Pitch and speaker embedding are unreliable on very short audio, such as a one-word heading.
+_MIN_SCORED_S = 2.0
+
+
+def _score(judge, engine, audio, sample_rate: int):
+    if judge is None or len(audio) < _MIN_SCORED_S * sample_rate:
+        return None
+    embed = getattr(engine, "speaker_embedding", None)
+    return judge.score(audio, embed(audio) if embed is not None else None)
 
 
 def _watch_parent(parent_pid: int) -> None:
@@ -115,8 +152,10 @@ def worker_main(
                 seed_step = int(msg.get("seed_step", 1))
                 engine.reset_peak_memory()
                 started = time.monotonic()
+                judge = _judge(engine, msg.get("identity"), info.sample_rate)
                 files: list[str] = []
                 chunk_seconds: list[float] = []
+                scores: list[dict[str, Any] | None] = []
                 audio_seconds = 0.0
                 for index, text in enumerate(chunks):
                     if cancel_event.is_set():
@@ -131,17 +170,42 @@ def worker_main(
                         }
                     )
                     chunk_started = time.monotonic()
-                    audio = engine.synthesize(
-                        ChunkRequest(
-                            text=text,
-                            language=msg["language"],
-                            reference=reference,
-                            seed=None if seed is None else seed + index * seed_step,
-                            temperature=msg.get("temperature"),
-                            top_p=msg.get("top_p"),
-                            instructions=msg.get("instructions"),
+                    best: tuple[Any, Any] | None = None
+                    tries = 0
+                    for attempt in range(1 + (consistency.MAX_RETRIES if judge else 0)):
+                        if attempt and cancel_event.is_set():
+                            break  # keep the best attempt so far; the loop above stops next
+                        audio = engine.synthesize(
+                            ChunkRequest(
+                                text=text,
+                                language=msg["language"],
+                                reference=reference,
+                                seed=None
+                                if seed is None
+                                else seed
+                                + index * seed_step
+                                + attempt * consistency.RETRY_SEED_STEP,
+                                temperature=msg.get("temperature"),
+                                top_p=msg.get("top_p"),
+                                instructions=msg.get("instructions"),
+                            )
                         )
-                    )
+                        tries += 1
+                        score = _score(judge, engine, audio, info.sample_rate)
+                        if score is None:
+                            best = (None, audio)
+                            break
+                        if best is None or score.rank > best[0].rank:
+                            best = (score, audio)
+                        if not score.outlier:
+                            break
+                        log.info("chunk %d attempt %d off-voice: %s", index, attempt + 1, score)
+                    assert best is not None
+                    score, audio = best
+                    if score is not None:
+                        score.attempts = tries
+                        judge.accept(score)
+                    scores.append(score.to_dict() if score is not None else None)
                     path = out_dir / f"chunk-{index:04d}.wav"
                     sf.write(
                         str(path),
@@ -164,6 +228,7 @@ def worker_main(
                             "sample_rate": info.sample_rate,
                             "elapsed_s": round(elapsed, 3),
                             "chunk_seconds": chunk_seconds,
+                            "chunk_scores": scores,
                             "audio_seconds": round(audio_seconds, 3),
                             "real_time_factor": round(elapsed / audio_seconds, 3)
                             if audio_seconds
