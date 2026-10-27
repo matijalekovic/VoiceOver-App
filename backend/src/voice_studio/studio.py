@@ -7,7 +7,7 @@ import logging.handlers
 from pathlib import Path
 from typing import Any
 
-from .catalog import DEFAULT_MODEL_ID, ModelSpec
+from .catalog import DEFAULT_MODEL_ID, QWEN3_LANGUAGES, ModelSpec
 from .config import Settings
 from .db import Database
 from .models import ModelManager
@@ -18,8 +18,8 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "output_dir": str(Path.home() / "Music" / "1PAX Voice Studio"),
     "idle_unload_minutes": 15,
     "unload_on_memory_pressure": True,
-    # Only languages evaluated on the target Mac are offered by default (spec 3.C).
-    "enabled_languages": ["english", "french", "spanish"],
+    # Every language the model speaks; each can be switched off in Settings → Languages.
+    "enabled_languages": list(QWEN3_LANGUAGES),
     "language_notes": {},
     "max_chunk_chars": 350,
     "sentence_pause_ms": 250,

@@ -68,9 +68,9 @@ stop a web page in Safari from calling the API; these do.
 
 ## Product
 
-- **Languages:** English, French and Spanish are enabled by default, the three the spec asks to
-  evaluate. The other seven Qwen3-TTS languages can be switched on in Settings → Languages once
-  checked, where each language also records an evaluation status and notes.
+- **Languages:** all ten Qwen3-TTS languages are enabled by default (at first only English,
+  French and Spanish were, the three the spec asked to evaluate). Each can be switched off in
+  Settings → Languages, where it also records an evaluation status and notes.
 - **One voice across languages:** a cloned voice gets a profile per language: a scored take it
   continues in every generation (native accent) or the original recording (the speaker's own
   accent), plus that language's delivery. Every chunk is checked against the real recordings and
