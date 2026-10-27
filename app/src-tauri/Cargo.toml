@@ -1,6 +1,6 @@
 [package]
 name = "voice-studio"
-version = "0.3.0"
+version = "0.3.1"
 description = "1PAX Voice Studio"
 authors = ["1PAX"]
 edition = "2021"
