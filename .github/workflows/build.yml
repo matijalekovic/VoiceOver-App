@@ -182,6 +182,9 @@ jobs:
       - name: Update manifest
         run: |
           cd dist
+          # The Mac artifact keeps its dmg/ and macos/ folders; the release takes files only.
+          find . -mindepth 2 -type f -exec mv {} . \;
+          find . -mindepth 1 -type d -empty -delete
           for f in *\ *; do if [ -e "$f" ]; then mv "$f" "${f// /.}"; fi; done
           python3 - <<'PY'
           import glob, json, os, datetime
