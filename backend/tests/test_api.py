@@ -6,6 +6,8 @@ from pathlib import Path
 import soundfile as sf
 from conftest import FAKE_MODEL, make_voice, speech_like_wav, wait_job
 
+from voice_studio.catalog import QWEN3_LANGUAGES
+
 
 def test_requests_need_token_and_loopback_host(client):
     assert client.get("/api/voices", headers={"Authorization": ""}).status_code == 401
@@ -267,7 +269,7 @@ def test_models_settings_languages_and_storage(client, tmp_path):
     assert wait_job(client, load["job_id"])["status"] == "completed"
     assert client.get("/api/models").json()[0]["loaded"] is True
     langs = client.get("/api/languages").json()
-    assert {lang["code"] for lang in langs if lang["enabled"]} == {"english", "french", "spanish"}
+    assert {lang["code"] for lang in langs if lang["enabled"]} == set(QWEN3_LANGUAGES)
     updated = client.put("/api/settings", json={"enabled_languages": ["english", "german"]}).json()
     assert updated["enabled_languages"] == ["english", "german"]
     assert client.put("/api/settings", json={"enabled_languages": ["klingon"]}).status_code == 400
