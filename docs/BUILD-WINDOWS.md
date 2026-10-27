@@ -13,7 +13,6 @@ Check each with the command shown; install only what is missing.
 | Git for Windows (includes Git Bash) | `git --version` | https://git-scm.com/download/win |
 | Node.js 22 | `node --version` | https://nodejs.org (LTS 22) |
 | Rust + MSVC build tools | `rustc --version` | https://rustup.rs — accept the offer to install the Visual Studio C++ Build Tools ("Desktop development with C++") |
-| GitHub CLI, signed in (the repo is private) | `gh auth status` | https://cli.github.com, then `gh auth login` |
 
 After installing Rust, open a new Git Bash so `cargo` is on the PATH, then add the target:
 
@@ -25,9 +24,14 @@ Nothing else is needed: the build downloads the pinned `uv` and the NSIS install
 
 ## 2. Build
 
+GitHub Actions already builds the Windows installer for every release (it is on the release
+page next to the `.dmg`), so a PC build is for testing on real hardware or building a version
+yourself. Build the released version by checking out its tag (here `v0.3.0`):
+
 ```bash
-gh repo clone matijalekovic/VoiceOver-App
+git clone https://github.com/matijalekovic/VoiceOver-App.git
 cd VoiceOver-App
+git checkout v0.3.0
 TAURI_ENV_TARGET_TRIPLE=x86_64-pc-windows-msvc bash scripts/prepare-bundle.sh
 cd app
 npm ci
@@ -66,6 +70,11 @@ Without an NVIDIA GPU, generation is several times slower than real time; that i
 
 Copy the `-setup.exe` next to the Mac `.dmg` you share with colleagues. The install guide for
 users is [INSTALL.md](INSTALL.md).
+
+From 0.3.0 the app updates itself from GitHub Releases ([RELEASING.md](RELEASING.md)). An
+installer built on this PC from a release tag works the same as the one on the release page:
+once installed, later versions arrive in the app's sidebar. Only GitHub Actions signs the
+update files, so a PC build is never needed to ship an update.
 
 ## If something fails
 
