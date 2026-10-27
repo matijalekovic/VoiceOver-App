@@ -26,12 +26,12 @@ Nothing else is needed: the build downloads the pinned `uv` and the NSIS install
 
 GitHub Actions already builds the Windows installer for every release (it is on the release
 page next to the `.dmg`), so a PC build is for testing on real hardware or building a version
-yourself. Build the released version by checking out its tag (here `v0.3.0`):
+yourself. Build the released version by checking out its tag (here `v0.3.1`):
 
 ```bash
 git clone https://github.com/matijalekovic/VoiceOver-App.git
 cd VoiceOver-App
-git checkout v0.3.0
+git checkout v0.3.1
 TAURI_ENV_TARGET_TRIPLE=x86_64-pc-windows-msvc bash scripts/prepare-bundle.sh
 cd app
 npm ci
