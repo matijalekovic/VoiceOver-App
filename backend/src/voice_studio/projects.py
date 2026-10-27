@@ -365,17 +365,16 @@ class ProjectService:
         from .generations import GenerationService
 
         project = self.get(project_id)
-        folder = GenerationService(self.studio).output_dir() / safe_filename(project["name"])
-        folder.mkdir(parents=True, exist_ok=True)
+        # Straight into the output folder (Downloads by default), named after the project.
+        folder = GenerationService(self.studio).output_dir()
+        name = safe_filename(project["name"])
         paths: list[str] = []
         if mode in ("combined", "both"):
             master = self.preview(project_id)
-            target = unique_path(folder, safe_filename(project["name"]), f".{fmt}")
+            target = unique_path(folder, name, f".{fmt}")
             audio.export(master, target, fmt, bitrate=bitrate, sample_rate=sample_rate)
             paths.append(str(target))
         if mode in ("segments", "both"):
-            seg_folder = folder / "Segments"
-            seg_folder.mkdir(parents=True, exist_ok=True)
             for index, seg in enumerate(project["segments"], start=1):
                 if not seg["active_generation_id"]:
                     continue
@@ -384,7 +383,9 @@ class ProjectService:
                     (seg["active_generation_id"],),
                 )
                 words = " ".join(seg["text"].split()[:6])
-                target = unique_path(seg_folder, safe_filename(f"{index:03d} {words}"), f".{fmt}")
+                target = unique_path(
+                    folder, safe_filename(f"{name} {index:03d} {words}"), f".{fmt}"
+                )
                 audio.export(
                     self.paths.resolve(row["audio_path"]),
                     target,

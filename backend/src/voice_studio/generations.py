@@ -102,7 +102,7 @@ class GenerationService:
         self, generation_id: str, fmt: str, bitrate: int, sample_rate: int | None
     ) -> dict[str, Any]:
         row = self.row(generation_id)
-        folder = self.output_dir() / "Generations"
+        folder = self.output_dir()
         stamp = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00")).astimezone()
         words = " ".join(row["text"].split()[:6])
         stem = safe_filename(f"{stamp:%Y-%m-%d %H%M} {row['voice_name']} - {words}")

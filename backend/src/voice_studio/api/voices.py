@@ -194,7 +194,7 @@ def delete_language(voice_id: str, language: str, studio: Studio = Depends(get_s
 
 @router.post("/{voice_id}/export", response_model=schemas.ExportResult)
 def export_voice(voice_id: str, studio: Studio = Depends(get_studio)):
-    folder = GenerationService(studio).output_dir() / "Voices"
+    folder = GenerationService(studio).output_dir()
     path = VoiceService(studio).export_zip(voice_id, folder)
     return {"paths": [str(path)], "folder": str(folder)}
 
