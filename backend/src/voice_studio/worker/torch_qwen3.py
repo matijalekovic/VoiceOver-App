@@ -120,13 +120,20 @@ class TorchQwen3TTSEngine:
                 )
             # x_vector_only_mode clones from the speaker fingerprint, not by continuing the
             # recording, so the voice can speak other languages without the recording's accent.
-            key = (reference.audio_path, reference.transcript, fingerprint)
+            identity = tuple(reference.identity or ())
+            key = (reference.audio_path, reference.transcript, fingerprint, identity)
             if self._prompt_key != key:
                 self._prompt = self._model.create_voice_clone_prompt(
                     ref_audio=reference.audio_path,
                     ref_text=None if fingerprint else reference.transcript,
                     x_vector_only_mode=fingerprint,
                 )
+                if identity:
+                    # Condition on the speaker's real recordings, not the reference audio's
+                    # embedding (see CloneReference.identity).
+                    pinned = self._identity_embedding(identity)
+                    for item in self._prompt:
+                        item.ref_spk_embedding = pinned.to(item.ref_spk_embedding)
                 self._prompt_key = key
             with self._tone(tone):
                 wavs, sample_rate = self._model.generate_voice_clone(
@@ -139,6 +146,32 @@ class TorchQwen3TTSEngine:
             raise EngineError("empty_output", "The model returned no audio for this text.")
         self._sample_rate = int(sample_rate)
         return np.asarray(wavs[0], dtype=np.float32).reshape(-1)
+
+    def speaker_embedding(self, audio: np.ndarray) -> np.ndarray:
+        """The speaker encoder's embedding of 24 kHz mono audio (what cloning conditions on)."""
+        return self._embed(audio).float().cpu().numpy().reshape(-1)
+
+    def _embed(self, audio: np.ndarray):
+        import torch
+
+        with torch.inference_mode():
+            return self._model.model.extract_speaker_embedding(
+                audio=np.asarray(audio, dtype=np.float32), sr=24_000
+            )
+
+    def _identity_embedding(self, paths: tuple[str, ...]):
+        import soundfile as sf
+        import torch
+
+        embeddings = []
+        for path in paths:
+            samples, sr = sf.read(path, dtype="float32", always_2d=True)
+            if sr != 24_000:
+                raise EngineError(
+                    "bad_reference", "Speaker recordings must be 24 kHz for the speaker encoder."
+                )
+            embeddings.append(self._embed(samples.mean(axis=1)))
+        return torch.stack(embeddings).mean(dim=0)
 
     @contextlib.contextmanager
     def _tone(self, tone: str | None):

@@ -186,17 +186,35 @@ class VoiceTest(Model):
     tone: str | None = Field(default=None, max_length=300)
 
 
+class LanguageTake(Model):
+    generation_id: str
+    similarity: float | None = None  # speaker similarity to the real recordings
+    register_st: float | None = None  # pitch register against the recordings, in semitones
+    rank: float = 0.0
+
+
 class LanguageVersion(Model):
-    """A cloned voice speaking another language natively, from its speaker fingerprint."""
+    """A cloned voice's profile for another language: the chosen take generations continue
+    from (demo_generation_id), the accent, and the language's own delivery."""
 
     language: str
     demo_generation_id: str | None = None
+    accent: Literal["native", "carried"] = "native"
+    style: dict[str, float] = {}
+    takes: list[LanguageTake] = []
     created_at: str
 
 
 class LanguageAdd(Model):
     language: str
     model_id: str | None = None
+    accent: Literal["native", "carried"] | None = None
+
+
+class LanguageUpdate(Model):
+    accent: Literal["native", "carried"] | None = None
+    take_id: str | None = None  # one of the profile's takes, to continue from
+    style: Style | None = None  # overrides of the voice's delivery; {} clears them
 
 
 # -- generation and jobs --------------------------------------------------

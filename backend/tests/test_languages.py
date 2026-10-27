@@ -76,3 +76,91 @@ def test_fingerprint_is_read_from_the_voices_takes(client, tmp_path, data_dir):
     assert len(sources) == len(clips) and sources[0].endswith(f"{clips[0]['id']}.wav")
     info = sf.info(str(folder / "fingerprint.wav"))
     assert info.frames / info.samplerate <= 60.5
+
+
+def _profile(client, voice_id: str, language: str) -> dict:
+    voice = client.get(f"/api/voices/{voice_id}").json()
+    return next(p for p in voice["languages"] if p["language"] == language)
+
+
+def test_language_profile_takes_are_scored_and_the_closest_is_continued(client, tmp_path):
+    voice = make_voice(client, tmp_path)
+    vid = voice["id"]
+    job = client.post(f"/api/voices/{vid}/languages", json={"language": "spanish"}).json()
+    assert wait_job(client, job["job_id"])["status"] == "completed"
+    profile = _profile(client, vid, "spanish")
+    assert profile["accent"] == "native" and len(profile["takes"]) == 4
+    ranks = [t["rank"] for t in profile["takes"]]
+    assert ranks == sorted(ranks, reverse=True)
+    assert profile["demo_generation_id"] == profile["takes"][0]["generation_id"]
+    assert profile["takes"][0]["similarity"] == 1.0  # the fake engine's one speaker
+
+    spanish = _generate(client, vid, "spanish")
+    # Continues the chosen take, so every chunk keeps its register and accent.
+    assert spanish["params"]["method"] == "anchor" and spanish["params"]["fingerprint"] is False
+    english = _generate(client, vid, "english")
+    assert english["params"]["method"] == "recording"
+    # A tone still needs the fingerprint, the only mode that takes an instruction.
+    calm = _generate(client, vid, "spanish", tone="Calm.")
+    assert calm["params"]["method"] == "fingerprint"
+
+    other = profile["takes"][2]["generation_id"]
+    res = client.patch(f"/api/voices/{vid}/languages/spanish", json={"take_id": other})
+    assert res.status_code == 200 and res.json()["demo_generation_id"] == other
+    bad = client.patch(f"/api/voices/{vid}/languages/spanish", json={"take_id": "nope"})
+    assert bad.status_code == 400 and bad.json()["error"]["code"] == "unknown_take"
+
+    # A new round replaces the old takes, except the one chosen.
+    job = client.post(f"/api/voices/{vid}/languages", json={"language": "spanish"}).json()
+    assert wait_job(client, job["job_id"])["status"] == "completed"
+    takes = [t["generation_id"] for t in _profile(client, vid, "spanish")["takes"]]
+    assert len(takes) == 5 and other in takes
+    gone = profile["takes"][1]["generation_id"]
+    assert client.get(f"/api/generations/{gone}").status_code == 404
+
+
+def test_carried_accent_continues_the_real_recording(client, tmp_path):
+    voice = make_voice(client, tmp_path)
+    vid = voice["id"]
+    job = client.post(
+        f"/api/voices/{vid}/languages", json={"language": "french", "accent": "carried"}
+    ).json()
+    assert wait_job(client, job["job_id"])["status"] == "completed"
+    assert _profile(client, vid, "french")["accent"] == "carried"
+    french = _generate(client, vid, "french")
+    assert french["params"]["method"] == "carried" and french["params"]["fingerprint"] is False
+
+    client.patch(f"/api/voices/{vid}/languages/french", json={"accent": "native"})
+    assert _generate(client, vid, "french")["params"]["method"] == "anchor"
+
+
+def test_language_delivery_overrides_the_voice(client, tmp_path):
+    voice = make_voice(client, tmp_path)
+    vid = voice["id"]
+    job = client.post(f"/api/voices/{vid}/languages", json={"language": "spanish"}).json()
+    wait_job(client, job["job_id"])
+    res = client.patch(f"/api/voices/{vid}/languages/spanish", json={"style": {"speed": 1.1}})
+    assert res.json()["style"] == {"speed": 1.1}
+    assert _generate(client, vid, "spanish")["params"]["speed"] == 1.1
+    assert _generate(client, vid, "english")["params"]["speed"] == 1.0
+    # The generation's own setting still wins.
+    assert _generate(client, vid, "spanish", style={"speed": 0.9})["params"]["speed"] == 0.9
+    client.patch(f"/api/voices/{vid}/languages/spanish", json={"style": {}})
+    assert _generate(client, vid, "spanish")["params"]["speed"] == 1.0
+
+
+def test_off_voice_chunks_are_generated_again(client, tmp_path):
+    voice = make_voice(client, tmp_path)
+    # Each sentence is one chunk of over two seconds, long enough to be measured.
+    text = (
+        "WOBBLE this sentence is long enough for its pitch to be measured, at about two seconds. "
+        "This second sentence is also long enough for its pitch to be measured reliably."
+    )
+    take = _generate(client, voice["id"], "english", text=text)
+    score, *rest = take["stats"]["chunk_scores"]  # the first chunk holds "WOBBLE"
+    assert score["attempts"] == 2  # its first attempt came out a fifth up
+    assert all(s is None or s["attempts"] == 1 for s in rest)
+    assert abs(score["f0_hz"] - 220) < 5 and abs(score["register_st"]) < 4
+
+    steady = _generate(client, voice["id"], "english", text=text.replace("WOBBLE", "Steady"))
+    assert steady["stats"]["chunk_scores"][0]["attempts"] == 1

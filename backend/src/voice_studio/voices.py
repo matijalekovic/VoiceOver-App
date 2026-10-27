@@ -65,6 +65,22 @@ def _clip_row(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# How a cloned voice speaks a language other than its recording's (see clone_reference).
+ACCENTS = ("native", "carried")
+
+
+def _language_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "language": row["language"],
+        "demo_generation_id": row["demo_generation_id"],
+        "accent": row["accent"],
+        # Only what this language overrides; the rest comes from the voice's own delivery.
+        "style": json.loads(row["style_json"] or "{}"),
+        "takes": json.loads(row["takes_json"] or "[]"),
+        "created_at": row["created_at"],
+    }
+
+
 def _voice_row(row: dict[str, Any]) -> dict[str, Any]:
     out = {k: v for k, v in row.items() if not k.startswith("consent_") and k != "style_json"}
     out["style"] = style.resolve(json.loads(row.get("style_json") or "{}"))
@@ -98,11 +114,8 @@ class VoiceService:
         for clip in self.db.all("SELECT * FROM voice_clips ORDER BY score DESC"):
             clips.setdefault(clip["voice_id"], []).append(_clip_row(clip))
         languages: dict[str, list[dict[str, Any]]] = {}
-        for row in self.db.all(
-            "SELECT voice_id, language, demo_generation_id, created_at FROM voice_languages "
-            "ORDER BY created_at"
-        ):
-            languages.setdefault(row.pop("voice_id"), []).append(row)
+        for row in self.db.all("SELECT * FROM voice_languages ORDER BY created_at"):
+            languages.setdefault(row["voice_id"], []).append(_language_row(row))
         return [
             {
                 **_voice_row(r),
@@ -128,15 +141,13 @@ class VoiceService:
             "SELECT * FROM voice_clips WHERE voice_id = ? ORDER BY score DESC", (voice_id,)
         )
         languages = self.db.all(
-            "SELECT language, demo_generation_id, created_at FROM voice_languages "
-            "WHERE voice_id = ? ORDER BY created_at",
-            (voice_id,),
+            "SELECT * FROM voice_languages WHERE voice_id = ? ORDER BY created_at", (voice_id,)
         )
         return {
             **_voice_row(row),
             "references": [_reference_row(r) for r in refs],
             "clips": [_clip_row(c) for c in clips],
-            "languages": languages,
+            "languages": [_language_row(r) for r in languages],
         }
 
     def create(
@@ -430,18 +441,33 @@ class VoiceService:
         *,
         language: str | None = None,
         tone: str | None = None,
+        force_fingerprint: bool = False,
     ) -> dict[str, Any]:
         """The recording and transcript a generation clones from: the chosen clip, a given
         clip or recording, or (for voices made before clips) the primary recording.
 
-        In another language than the recording's, or with a tone instruction, the voice is
-        cloned from its speaker fingerprint instead (fingerprint_only): continuing the
-        recording would carry its accent into the other language, and only that mode takes
-        an instruction."""
+        In another language than the recording's, the voice's language profile decides:
+        - accent "native": every chunk continues the profile's chosen take (the anchor), a
+          take spoken natively from the speaker fingerprint and picked as the closest to the
+          speaker. Continuing one take keeps register, pace and accent the same from chunk to
+          chunk; the identity is pinned to the real recordings (CloneReference.identity).
+        - accent "carried": every chunk continues the real recording, so the speaker's own
+          accent carries into the language, as when a person speaks a second language.
+        - no profile yet: cloned from the speaker fingerprint alone (fingerprint_only).
+        A tone instruction always uses the fingerprint, the only mode that takes one.
+
+        method in the result records which of these was used."""
         voice = self.get(voice_id)
         other_language = bool(language) and language.lower() != voice["language"].lower()
-        if voice["mode"] != "design" and (other_language or (tone or "").strip()):
+        profile = self.language_profile(voice, language) if other_language else None
+        if voice["mode"] != "design" and (
+            force_fingerprint or (tone or "").strip() or (other_language and not profile)
+        ):
             return self._fingerprint_reference(voice, ref_id)
+        if profile and profile["accent"] == "native":
+            anchor = self._anchor_reference(voice, profile)
+            return anchor or self._fingerprint_reference(voice, ref_id)
+        method = "carried" if profile else "recording"
         if voice["mode"] == "design":
             raise StudioError(
                 "wrong_voice_mode",
@@ -461,6 +487,7 @@ class VoiceService:
                 "reference_id": clip_id,
                 "audio_path": str(path),
                 "transcript": clip["transcript"],
+                "method": method,
             }
         ref_id = ref_id or voice["primary_reference_id"]
         if not ref_id:
@@ -488,6 +515,31 @@ class VoiceService:
             "reference_id": ref_id,
             "audio_path": str(path),
             "transcript": row["transcript"],
+            "method": method,
+        }
+
+    def _anchor_reference(
+        self, voice: dict[str, Any], profile: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The language profile's chosen take to continue, or None when it has none (yet)."""
+        generation_id = profile["demo_generation_id"]
+        row = (
+            self.db.one(
+                "SELECT text, audio_path FROM generations WHERE id = ? AND voice_id = ?",
+                (generation_id, voice["id"]),
+            )
+            if generation_id
+            else None
+        )
+        if not row or not self.paths.resolve(row["audio_path"]).exists():
+            return None
+        return {
+            "voice": voice,
+            "reference_id": voice["clip_id"],
+            "audio_path": str(self.paths.resolve(row["audio_path"])),
+            "transcript": row["text"],
+            "identity": [str(p) for p in self.identity_audio(voice)],
+            "method": "anchor",
         }
 
     def _fingerprint_reference(self, voice: dict[str, Any], ref_id: str | None) -> dict[str, Any]:
@@ -505,11 +557,18 @@ class VoiceService:
             "audio_path": str(path),
             "transcript": "",
             "fingerprint_only": True,
+            # A style take lends its delivery; the identity stays all of the speaker's takes.
+            "identity": [str(p) for p in self.identity_audio(voice)],
+            "method": "fingerprint",
         }
 
-    def fingerprint_audio(self, voice: dict[str, Any]) -> Path:
-        """Up to FINGERPRINT_MAX_S of the voice's takes (chosen first, then kept, then the
-        rest by score), joined with short pauses. Cached until the takes change."""
+    def identity_audio(self, voice: dict[str, Any]) -> list[Path]:
+        """The speaker's real recordings a take is measured against and, for generated
+        anchors, conditioned on: the takes the fingerprint is read from, one file each."""
+        sources = self._fingerprint_sources(voice)
+        return sources if voice["clips"] else [self.fingerprint_audio(voice)]
+
+    def _fingerprint_sources(self, voice: dict[str, Any]) -> list[Path]:
         clips = sorted(
             voice["clips"],
             key=lambda c: (c["id"] != voice["clip_id"], not c["kept"], -c["score"]),
@@ -521,6 +580,12 @@ class VoiceService:
                 break
             sources.append(self.paths.resolve(self.clip_row(voice["id"], clip["id"])["audio_path"]))
             total += clip["end_s"] - clip["start_s"]
+        return sources
+
+    def fingerprint_audio(self, voice: dict[str, Any]) -> Path:
+        """Up to FINGERPRINT_MAX_S of the voice's takes (chosen first, then kept, then the
+        rest by score), joined with short pauses. Cached until the takes change."""
+        sources = self._fingerprint_sources(voice)
         if not sources:  # a voice made before takes existed: its primary recording
             ref_id = voice["primary_reference_id"]
             if not ref_id:
@@ -545,6 +610,22 @@ class VoiceService:
         return target
 
     # -- languages -------------------------------------------------------------------
+    def language_profile(
+        self, voice: dict[str, Any], language: str | None
+    ) -> dict[str, Any] | None:
+        if not language:
+            return None
+        return next((p for p in voice["languages"] if p["language"] == language.lower()), None)
+
+    def ensure_language(self, voice_id: str, language: str, accent: str | None = None) -> None:
+        if accent is not None and accent not in ACCENTS:
+            raise StudioError("bad_accent", f"Accent must be one of {', '.join(ACCENTS)}.")
+        self.db.execute(
+            "INSERT INTO voice_languages (voice_id, language, accent, created_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(voice_id, language) DO UPDATE SET accent = COALESCE(?, accent)",
+            (voice_id, language.lower(), accent or "native", now_iso(), accent),
+        )
+
     def set_language_version(self, voice_id: str, language: str, generation_id: str) -> None:
         self.get(voice_id)
         self.db.execute(
@@ -553,6 +634,50 @@ class VoiceService:
             "demo_generation_id = excluded.demo_generation_id",
             (voice_id, language.lower(), generation_id, now_iso()),
         )
+
+    def set_language_takes(self, voice_id: str, language: str, takes: list[dict[str, Any]]) -> None:
+        """A new round of candidate takes, closest to the speaker first; the closest becomes
+        the take every generation in this language continues from."""
+        takes = sorted(takes, key=lambda t: -t["rank"])
+        self.db.execute(
+            "UPDATE voice_languages SET takes_json = ?, demo_generation_id = ? "
+            "WHERE voice_id = ? AND language = ?",
+            (
+                json.dumps(takes),
+                takes[0]["generation_id"] if takes else None,
+                voice_id,
+                language.lower(),
+            ),
+        )
+
+    def update_language(
+        self, voice_id: str, language: str, patch: dict[str, Any]
+    ) -> dict[str, Any]:
+        voice = self.get(voice_id)
+        profile = self.language_profile(voice, language)
+        if profile is None:
+            raise NotFound("Language", language)
+        fields: dict[str, Any] = {}
+        if patch.get("accent") is not None:
+            if patch["accent"] not in ACCENTS:
+                raise StudioError("bad_accent", f"Accent must be one of {', '.join(ACCENTS)}.")
+            fields["accent"] = patch["accent"]
+        if patch.get("take_id") is not None:
+            if not any(t["generation_id"] == patch["take_id"] for t in profile["takes"]):
+                raise StudioError("unknown_take", "That take is not one of this language's takes.")
+            fields["demo_generation_id"] = patch["take_id"]
+        if "style" in patch and patch["style"] is not None:
+            # Stored as overrides only, clamped; an empty object returns to the voice's own.
+            clean = {k: v for k, v in patch["style"].items() if k in style.LIMITS and v is not None}
+            resolved = style.resolve(clean)
+            fields["style_json"] = json.dumps({k: resolved[k] for k in clean})
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            self.db.execute(
+                f"UPDATE voice_languages SET {sets} WHERE voice_id = ? AND language = ?",
+                (*fields.values(), voice_id, language.lower()),
+            )
+        return self.language_profile(self.get(voice_id), language)  # type: ignore[return-value]
 
     def delete_language_version(self, voice_id: str, language: str) -> None:
         self.db.execute(

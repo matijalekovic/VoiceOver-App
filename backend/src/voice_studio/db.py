@@ -173,6 +173,13 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (voice_id, language)
     );
     """,
+    # 6: language profiles. demo_generation_id becomes the chosen take that generations in
+    # the language continue from; accent picks native pronunciation or the speaker's own.
+    """
+    ALTER TABLE voice_languages ADD COLUMN accent TEXT NOT NULL DEFAULT 'native';
+    ALTER TABLE voice_languages ADD COLUMN style_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE voice_languages ADD COLUMN takes_json TEXT NOT NULL DEFAULT '[]';
+    """,
 ]
 
 

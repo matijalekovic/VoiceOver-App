@@ -100,15 +100,20 @@ export function Generate() {
   useEffect(() => {
     if (voice && !language) setLanguage(voice.language);
   }, [voice, language]);
-  // Each voice starts from its own saved delivery; refetches of the same voice keep edits.
-  const deliveryVoiceId = useRef<string | null>(null);
+  // Each voice and language starts from its saved delivery; refetches of the same keep edits.
+  const deliveryKey = useRef<string | null>(null);
   useEffect(() => {
-    if (voice && deliveryVoiceId.current !== voice.id) {
-      const first = deliveryVoiceId.current === null;
-      deliveryVoiceId.current = voice.id;
-      setDelivery({ ...deliveryFor(voice), tone: first ? (reuse?.tone ?? "") : "" });
+    const key = voice && language ? `${voice.id}:${language}` : null;
+    if (voice && key && deliveryKey.current !== key) {
+      const first = deliveryKey.current === null;
+      const sameVoice = deliveryKey.current?.startsWith(`${voice.id}:`);
+      deliveryKey.current = key;
+      setDelivery((current) => ({
+        ...deliveryFor(voice, language),
+        tone: first ? (reuse?.tone ?? "") : sameVoice ? current.tone : "",
+      }));
     }
-  }, [voice]);
+  }, [voice, language]);
   const preferredModelId = usePreferredModelId(capability);
   useEffect(() => {
     if (!modelId) {

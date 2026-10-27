@@ -102,14 +102,40 @@ export interface Voice {
   updated_at: string;
   references: Reference[];
   clips: Clip[];
-  /** Versions in other languages, spoken natively from the voice's fingerprint. */
-  languages: { language: string; demo_generation_id: string | null; created_at: string }[];
+  /** Profiles for the voice's other languages. */
+  languages: LanguageProfile[];
   generation_count: number;
+}
+
+export type Accent = "native" | "carried";
+
+export interface LanguageTake {
+  generation_id: string;
+  /** Speaker similarity to the real recordings (0–1), when the engine can measure it. */
+  similarity: number | null;
+  /** Pitch register against the real recordings, in semitones. */
+  register_st: number | null;
+  rank: number;
+}
+
+/**
+ * How a cloned voice speaks another language. "native": every generation continues the chosen
+ * take (demo_generation_id), spoken natively and picked as the closest to the speaker.
+ * "carried": every generation continues the real recording, keeping the speaker's own accent.
+ */
+export interface LanguageProfile {
+  language: string;
+  demo_generation_id: string | null;
+  accent: Accent;
+  /** Only what this language overrides of the voice's delivery. */
+  style: Partial<Style>;
+  takes: LanguageTake[];
+  created_at: string;
 }
 
 export interface Job {
   id: string;
-  kind: "tts" | "voice_test" | "segment" | "load_model" | "voice_create";
+  kind: "tts" | "voice_test" | "segment" | "load_model" | "voice_create" | "language_takes";
   status: JobStatus;
   progress: { chunk?: number; chunks?: number; audio_seconds?: number; message?: string; step?: string };
   payload: Record<string, unknown>;

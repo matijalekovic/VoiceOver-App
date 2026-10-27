@@ -21,10 +21,19 @@ export interface Delivery {
 
 const TONES = ["Cheerful", "Calm", "Serious", "Excited", "Warm"];
 
-export function deliveryFor(voice: Voice | undefined | null): Delivery {
+export function languageProfile(voice: Voice | undefined | null, language: string | null | undefined) {
+  if (!voice || !language) return undefined;
+  return voice.languages.find((l) => l.language === language.toLowerCase());
+}
+
+/** The delivery a generation starts from: the voice's own, then its language profile's. */
+export function deliveryFor(voice: Voice | undefined | null, language?: string | null): Delivery {
   return {
     clipId: null,
-    style: voice?.style ?? { expressiveness: 0.6, speed: 1, pitch: 0 },
+    style: {
+      ...(voice?.style ?? { expressiveness: 0.6, speed: 1, pitch: 0 }),
+      ...(languageProfile(voice, language)?.style ?? {}),
+    },
     tone: "",
   };
 }
@@ -102,19 +111,35 @@ export function VoiceControls({
 }) {
   const cloned = voice.mode !== "design";
   const otherLanguage = cloned && !!language && language.toLowerCase() !== voice.language.toLowerCase();
+  const profile = otherLanguage ? languageProfile(voice, language) : undefined;
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const set = (patch: Partial<Style>) => onChange({ ...value, style: { ...value.style, ...patch } });
   const takes = voice.clips.filter((c) => c.kept && c.id !== voice.clip_id);
-  const isDefault = sameStyle(value.style, voice.style);
+  const defaults = deliveryFor(voice, language).style;
+  const isDefault = sameStyle(value.style, defaults);
 
   async function saveDefault() {
     setSaving(true);
     try {
-      await api.updateVoice(voice.id, { style: value.style });
+      if (profile) {
+        // Saved for this language only: what differs from the voice's own delivery.
+        const overrides = Object.fromEntries(
+          (Object.keys(value.style) as (keyof Style)[])
+            .filter((k) => Math.abs(value.style[k] - voice.style[k]) > 0.001)
+            .map((k) => [k, value.style[k]]),
+        );
+        await api.updateLanguage(voice.id, profile.language, { style: overrides });
+      } else {
+        await api.updateVoice(voice.id, { style: value.style });
+      }
       await queryClient.invalidateQueries({ queryKey: ["voices"] });
       await queryClient.invalidateQueries({ queryKey: ["voice", voice.id] });
-      toast.success(`Saved as ${voice.name}'s default delivery`);
+      toast.success(
+        profile
+          ? `Saved as ${voice.name}'s ${languageLabel(profile.language)} delivery`
+          : `Saved as ${voice.name}'s default delivery`,
+      );
     } catch (err) {
       toastError(err, "Could not save");
     } finally {
@@ -126,8 +151,12 @@ export function VoiceControls({
     <div className={cn("space-y-4", className)}>
       {otherLanguage && (
         <p className="rounded-xl bg-blue-soft px-3 py-2 text-[12.5px] text-blue">
-          {voice.name} was recorded in {languageLabel(voice.language)}. In {languageLabel(language!)} it speaks from
-          its voice fingerprint, with native pronunciation instead of the recording's accent.
+          {voice.name} was recorded in {languageLabel(voice.language)}.{" "}
+          {!profile
+            ? `In ${languageLabel(language!)} it speaks from its voice fingerprint, with native pronunciation. Add ${languageLabel(language!)} under Languages on the voice's page to keep it steadier from paragraph to paragraph.`
+            : profile.accent === "carried"
+              ? `In ${languageLabel(language!)} it continues the original recording, keeping ${voice.name}'s own accent.`
+              : `In ${languageLabel(language!)} it continues the chosen ${languageLabel(language!)} take, with native pronunciation, so every paragraph keeps the same delivery.`}
         </p>
       )}
       <div className="space-y-2">
@@ -208,9 +237,14 @@ export function VoiceControls({
       />
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={saveDefault} loading={saving} disabled={isDefault}>
-          Save as voice default
+          {profile ? `Save as ${languageLabel(profile.language)} default` : "Save as voice default"}
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => onChange(deliveryFor(voice))} disabled={isDefault && !value.clipId && !value.tone}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onChange(deliveryFor(voice, language))}
+          disabled={isDefault && !value.clipId && !value.tone}
+        >
           <RotateCcw /> Reset
         </Button>
       </div>
