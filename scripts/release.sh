@@ -24,7 +24,7 @@ path = "app/src-tauri/Cargo.toml"
 text = open(path).read()
 open(path, "w").write(re.sub(r'(?m)^version = "[^"]+"', f'version = "{v}"', text, count=1))
 PY
-(cd app && npm install --package-lock-only --silent)
+sed -i.bak -E "1,20s/(\"version\": )\"[^\"]+\"/\1\"$VERSION\"/" app/package-lock.json && rm app/package-lock.json.bak
 if command -v cargo >/dev/null || [ -x "$(brew --prefix rustup 2>/dev/null)/bin/cargo" ]; then
   PATH="$(brew --prefix rustup 2>/dev/null)/bin:$PATH" cargo update -q -p voice-studio --manifest-path app/src-tauri/Cargo.toml
 fi
