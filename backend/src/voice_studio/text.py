@@ -19,6 +19,84 @@ _SENTENCE_END = re.compile(r"([.!?…]+(?:\s?[\"'»”’)\]])*)(\s+)")
 _CLAUSE_BREAK = re.compile(r"(?<=[,;:—–])\s+")
 
 
+_SERBIAN_CYRILLIC = dict(
+    zip(
+        "абвгдђежзијклљмнњопрстћуфхцчџшАБВГДЂЕЖЗИЈКЛЉМНЊОПРСТЋУФХЦЧЏШ",
+        [
+            "a",
+            "b",
+            "v",
+            "g",
+            "d",
+            "đ",
+            "e",
+            "ž",
+            "z",
+            "i",
+            "j",
+            "k",
+            "l",
+            "lj",
+            "m",
+            "n",
+            "nj",
+            "o",
+            "p",
+            "r",
+            "s",
+            "t",
+            "ć",
+            "u",
+            "f",
+            "h",
+            "c",
+            "č",
+            "dž",
+            "š",
+            "A",
+            "B",
+            "V",
+            "G",
+            "D",
+            "Đ",
+            "E",
+            "Ž",
+            "Z",
+            "I",
+            "J",
+            "K",
+            "L",
+            "Lj",
+            "M",
+            "N",
+            "Nj",
+            "O",
+            "P",
+            "R",
+            "S",
+            "T",
+            "Ć",
+            "U",
+            "F",
+            "H",
+            "C",
+            "Č",
+            "Dž",
+            "Š",
+        ],
+        strict=True,
+    )
+)
+
+
+def for_language(text: str, language: str) -> str:
+    """Text as the model reads it best in a language. Serbian is read from Latin script: the
+    model has no Serbian token, and Cyrillic pulls it toward Russian pronunciation."""
+    if language.lower() == "serbian":
+        return "".join(_SERBIAN_CYRILLIC.get(ch, ch) for ch in text)
+    return text
+
+
 def normalise(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n").replace(" ", " ")
     return re.sub(r"[ \t]+", " ", text).strip()

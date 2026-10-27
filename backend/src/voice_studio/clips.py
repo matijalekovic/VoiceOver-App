@@ -206,6 +206,8 @@ DEMO_SCRIPTS: dict[str, str] = {
     "vostri testi, narrare i vostri video e guidare chi ascolta, con chiarezza e naturalezza. Fatemi sapere come suona.",
     "portuguese": "Olá e bem-vindos. Esta é uma breve amostra da minha nova voz. Posso ler os seus "
     "roteiros, narrar os seus vídeos e guiar quem ouve, com clareza e naturalidade. Digam-me o que acham.",
+    "serbian": "Zdravo i dobro došli. Ovo je kratak primer mog novog glasa. Mogu da čitam vaše "
+    "tekstove, da pripovedam vaše video snimke i vodim vaše slušaoce, jasno i prirodno. Recite mi kako zvuči.",
     "russian": "Здравствуйте и добро пожаловать. Это короткий пример моего нового голоса. Я могу читать "
     "ваши сценарии, озвучивать видео и вести слушателей ясно и естественно. Скажите, как это звучит.",
     "chinese": "你好，欢迎收听。这是我新声音的简短试听。我可以朗读你的稿件、为视频配音，清晰自然地引导听众。告诉我听起来怎么样。",

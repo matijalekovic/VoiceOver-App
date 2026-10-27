@@ -11,7 +11,7 @@ import psutil
 from fastapi import APIRouter, Depends, Query
 
 from .. import __version__, schemas
-from ..catalog import QWEN3_LANGUAGES
+from ..catalog import EXPERIMENTAL_LANGUAGES, QWEN3_LANGUAGES, model_language
 from ..errors import Conflict, StudioError
 from ..jobs import memory_pressure_level
 from ..models import dir_size
@@ -111,7 +111,10 @@ def languages(studio: Studio = Depends(get_studio)):
             "label": label,
             "enabled": code in prefs["enabled_languages"],
             # None until a model is loaded and has reported what it supports.
-            "supported_by_loaded_model": None if runtime is None else code in runtime,
+            "supported_by_loaded_model": None
+            if runtime is None
+            else model_language(code) == "auto" or code in runtime,
+            "experimental": code in EXPERIMENTAL_LANGUAGES,
             "evaluation": notes.get(code, {}),
         }
         for code, label in QWEN3_LANGUAGES.items()

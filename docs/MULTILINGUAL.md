@@ -67,10 +67,27 @@ rolled. Whisper understood all of them; it does not measure accent, so that is f
 ## Languages
 
 Qwen3-TTS supports Chinese, English, Japanese, Korean, German, French, Russian, Portuguese,
-Spanish and Italian. **Serbian is not supported**: the model has no Serbian language token and
-was not trained on Serbian speech. Text in Serbian can be fed to it, but pronunciation would be
-an approximation at best (borrowing the Russian language token would pull it toward Russian
-vowel reduction and stress, which are wrong for Serbian). Not yet tested here. Serbian needs either a different model or fine-tuning (below).
+Spanish and Italian; all ten are enabled by default.
+
+**Serbian is experimental.** The checkpoint has no Serbian language token, so Serbian is spoken
+with the token left out ("auto") and the script read in Latin letters (Cyrillic is
+transliterated before synthesis). Measured on the same speaker, two takes each, Whisper word
+error against the script:
+
+| Serbian setup | Word error | Similarity |
+|---|---|---|
+| Latin script, no language token (what the app does) | 18–26 % | 0.99 |
+| Latin script, continuing the English recording (own accent) | 18 % | 0.99 |
+| Cyrillic, no language token | 50–58 % | 0.99 |
+| Cyrillic with the Russian token | 53–61 % | 0.99 |
+
+Part of the Latin error is word splitting ("daleko vodi") and assimilation that is how the words
+are spoken ("obštine"); the Cyrillic and Russian takes reduce vowels the Russian way
+("vremina", "duga"). It is understandable, not native. A Serbian recording of the speaker would
+help most: cloning that recording in Serbian continues his own Serbian pronunciation.
+
+Chinese, by contrast, came out at 0 % character error with similarity 0.99, natively and with
+the speaker's own accent alike.
 
 Language character (Mandarin's tones, French liaison, Spanish's syllable timing) is learned by
 the model from native speakers. It is not something to configure; what a profile controls is

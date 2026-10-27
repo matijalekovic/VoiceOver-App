@@ -53,7 +53,7 @@ export function LanguagePicker({
   const options = enabledLanguages(data).map((l) => ({
     value: l.code,
     label: l.label,
-    description: l.evaluation.status === "verified" ? "Verified" : undefined,
+    description: l.evaluation.status === "verified" ? "Verified" : l.experimental ? "Not a model language; listen first" : undefined,
   }));
   // Keep a value that was chosen earlier visible even if it has since been disabled.
   if (value && !options.some((o) => o.value === value)) {

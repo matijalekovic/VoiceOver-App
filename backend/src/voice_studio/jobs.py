@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 import psutil
 
 from . import audio, style, text, timing
-from .catalog import WHISPER_LANGUAGES
+from .catalog import WHISPER_LANGUAGES, model_language
 from .db import new_id, now_iso
 from .errors import EngineError, JobCancelled, NotFound, StudioError
 
@@ -379,7 +379,9 @@ class JobRunner:
         load = self._load_model(job, model_id)
         self._check_cancel(job_id)
 
-        pieces = text.chunk_text(body, int(studio.pref("max_chunk_chars")))
+        pieces = text.chunk_text(
+            text.for_language(body, payload["language"]), int(studio.pref("max_chunk_chars"))
+        )
         if not pieces:
             raise StudioError("empty_text", "There is no text to synthesise.")
         seed = payload.get("seed")
@@ -423,7 +425,7 @@ class JobRunner:
         result = studio.inference.synthesize(
             {
                 "chunks": [p.text for p in pieces],
-                "language": payload["language"],
+                "language": model_language(payload["language"]),
                 "reference": reference,
                 "instructions": instructions,
                 "identity": identity,
@@ -594,6 +596,12 @@ class JobRunner:
                     voices.reference_audio_path(voice_id, ref["id"], "source"),
                     WHISPER_LANGUAGES.get(ref["language"] or language),
                 )
+                # A clip's transcript is read by the model too (cloning continues it).
+                spoken = ref["language"] or language
+                for segment in segments:
+                    segment["text"] = text.for_language(segment["text"], spoken)
+                    for word in segment["words"]:
+                        word["word"] = text.for_language(word["word"], spoken)
                 voices.set_segments(voice_id, ref["id"], segments)
 
         self._check_cancel(job_id)

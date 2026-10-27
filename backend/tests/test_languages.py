@@ -164,3 +164,19 @@ def test_off_voice_chunks_are_generated_again(client, tmp_path):
 
     steady = _generate(client, voice["id"], "english", text=text.replace("WOBBLE", "Steady"))
     assert steady["stats"]["chunk_scores"][0]["attempts"] == 1
+
+
+def test_serbian_is_read_from_latin_without_a_language_token(client, tmp_path):
+    from voice_studio.catalog import model_language
+    from voice_studio.text import for_language
+
+    assert model_language("serbian") == "auto" and model_language("spanish") == "spanish"
+    assert for_language("Њихов циљ је џеп.", "serbian") == "Njihov cilj je džep."
+    assert for_language("Њихов", "russian") == "Њихов"
+
+    voice = make_voice(client, tmp_path)
+    take = _generate(client, voice["id"], "serbian", text="Добар дан, ово је проба.")
+    assert take["language"] == "serbian" and take["params"]["method"] == "fingerprint"
+    listing = {lang["code"]: lang for lang in client.get("/api/languages").json()}
+    assert listing["serbian"]["experimental"] is True and listing["serbian"]["enabled"]
+    assert listing["serbian"]["supported_by_loaded_model"] is True
