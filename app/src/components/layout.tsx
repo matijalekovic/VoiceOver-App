@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { BrandMark } from "./brand";
 import { ModelSetup } from "./model-setup";
 import { stageLabel } from "./job-progress";
+import { UpdateCard } from "./update-card";
 
 const NAV_GROUPS = [
   {
@@ -145,6 +146,7 @@ export function Layout() {
           ))}
         </nav>
         <div className="mt-auto flex flex-col gap-3">
+          <UpdateCard />
           <SideLink to="/settings" label="Settings" icon={SettingsIcon} />
           <EngineCard />
         </div>
